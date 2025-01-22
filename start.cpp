@@ -447,16 +447,18 @@ class Tilstand // {{{
 { public:
     Tilstand();
     virtual ~Tilstand();
+    // Taster
     bool tast_venstre;
     bool tast_hoejre;
-    bool tast_op;
-    bool tast_ned;
+    bool tast_frem;
+    bool tast_bak;
     bool tast_mellemrum;
-    bool tast_skyd;
-    bool tast_vaaben;
+    // Bane
     vector<Trekant> bane;
     Omraader omraader;
+    // Objekter
     vector<Ting*> ting;
+    // Bilens position og retning
     float mig_x;
     float mig_y;
     float mig_z;
@@ -469,20 +471,25 @@ class Tilstand // {{{
     float mig_hastighed_x;
     float mig_hastighed_y;
     float mig_hastighed_z;
-    float mig_acceleration_x;
-    float mig_acceleration_y;
-    float mig_acceleration_z;
-    int mig_vaaben; // 0=granat, 1=pistol
-    int mig_skyd_ventetid;
+    // Kameraets position (retning er altid imod bilen)
+    float kamera_x;
+    float kamera_y;
+    float kamera_z;
+    float kamera_h_cos;
+    float kamera_h_sin;
+    float kamera_v_cos;
+    float kamera_v_sin;
+    //Checkpoint
     float checkpoint_x;
     float checkpoint_y;
     float checkpoint_z;
+    //Colission detection
     bool frem_blokeret;
     bool tilbage_blokeret;
     bool venstre_blokeret;
     bool hoejre_blokeret;
-    bool op_blokeret;
     bool ned_blokeret;
+    bool op_blokeret;
     bool rammer_roed;
     bool rammer_groen;
     bool rammer_blaa;
@@ -496,11 +503,9 @@ class Tilstand // {{{
 Tilstand::Tilstand() // {{{
 : tast_venstre(false)
 , tast_hoejre(false)
-, tast_op(false)
-, tast_ned(false)
+, tast_frem(false)
+, tast_bak(false)
 , tast_mellemrum(false)
-, tast_skyd(false)
-, tast_vaaben(false)
 , mig_x(0.0)
 , mig_y(0.0)
 , mig_z(30.0)
@@ -513,11 +518,13 @@ Tilstand::Tilstand() // {{{
 , mig_hastighed_x(0.0)
 , mig_hastighed_y(0.0)
 , mig_hastighed_z(0.0)
-, mig_acceleration_x(0.0)
-, mig_acceleration_y(0.0)
-, mig_acceleration_z(-0.1)
-, mig_vaaben(0)
-, mig_skyd_ventetid(0)
+, kamera_x(mig_x)
+, kamera_y(mig_y-1.0)
+, kamera_z(mig_z)
+, kamera_h_cos(0.0)
+, kamera_h_sin(1.0)
+, kamera_v_cos(1.0)
+, kamera_v_sin(0.0)
 , checkpoint_x(0.0)
 , checkpoint_y(0.0)
 , checkpoint_z(30.0)
@@ -935,35 +942,35 @@ void haandter_rammer(int r, int g, int b, Tilstand &t) // {{{
 // Tegn en trekant ud fra 3D koordinater
 inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, const Trekant &trekant) // {{{
 { // Forskyd koordinater
-  float tx1=trekant.minX1-t.mig_x+3.0*t.mig_h_cos;
-  float ty1=trekant.minY1-t.mig_y+3.0*t.mig_h_sin;
-  float tz1=trekant.minZ1-t.mig_z-1.0;
-  float tx2=trekant.minX2-t.mig_x+3.0*t.mig_h_cos;
-  float ty2=trekant.minY2-t.mig_y+3.0*t.mig_h_sin;
-  float tz2=trekant.minZ2-t.mig_z-1.0;
-  float tx3=trekant.minX3-t.mig_x+3.0*t.mig_h_cos;
-  float ty3=trekant.minY3-t.mig_y+3.0*t.mig_h_sin;
-  float tz3=trekant.minZ3-t.mig_z-1.0;
+  float tx1=trekant.minX1-t.kamera_x+3.0*t.kamera_h_cos;
+  float ty1=trekant.minY1-t.kamera_y+3.0*t.kamera_h_sin;
+  float tz1=trekant.minZ1-t.kamera_z;
+  float tx2=trekant.minX2-t.kamera_x+3.0*t.kamera_h_cos;
+  float ty2=trekant.minY2-t.kamera_y+3.0*t.kamera_h_sin;
+  float tz2=trekant.minZ2-t.kamera_z;
+  float tx3=trekant.minX3-t.kamera_x+3.0*t.kamera_h_cos;
+  float ty3=trekant.minY3-t.kamera_y+3.0*t.kamera_h_sin;
+  float tz3=trekant.minZ3-t.kamera_z;
   // Roter om z-aksen
-  float rx1=tx1*t.mig_h_sin-ty1*t.mig_h_cos;
-  float ry1=ty1*t.mig_h_sin+tx1*t.mig_h_cos;
+  float rx1=tx1*t.kamera_h_sin-ty1*t.kamera_h_cos;
+  float ry1=ty1*t.kamera_h_sin+tx1*t.kamera_h_cos;
   float rz1=tz1;
-  float rx2=tx2*t.mig_h_sin-ty2*t.mig_h_cos;
-  float ry2=ty2*t.mig_h_sin+tx2*t.mig_h_cos;
+  float rx2=tx2*t.kamera_h_sin-ty2*t.kamera_h_cos;
+  float ry2=ty2*t.kamera_h_sin+tx2*t.kamera_h_cos;
   float rz2=tz2;
-  float rx3=tx3*t.mig_h_sin-ty3*t.mig_h_cos;
-  float ry3=ty3*t.mig_h_sin+tx3*t.mig_h_cos;
+  float rx3=tx3*t.kamera_h_sin-ty3*t.kamera_h_cos;
+  float ry3=ty3*t.kamera_h_sin+tx3*t.kamera_h_cos;
   float rz3=tz3;
   // Roter om x-aksen
   float fx1=rx1;
-  float fy1=ry1*t.mig_v_cos+rz1*t.mig_v_sin;
-  float fz1=rz1*t.mig_v_cos-ry1*t.mig_v_sin;
+  float fy1=ry1*t.kamera_v_cos+rz1*t.kamera_v_sin;
+  float fz1=rz1*t.kamera_v_cos-ry1*t.kamera_v_sin;
   float fx2=rx2;
-  float fy2=ry2*t.mig_v_cos+rz2*t.mig_v_sin;
-  float fz2=rz2*t.mig_v_cos-ry2*t.mig_v_sin;
+  float fy2=ry2*t.kamera_v_cos+rz2*t.kamera_v_sin;
+  float fz2=rz2*t.kamera_v_cos-ry2*t.kamera_v_sin;
   float fx3=rx3;
-  float fy3=ry3*t.mig_v_cos+rz3*t.mig_v_sin;
-  float fz3=rz3*t.mig_v_cos-ry3*t.mig_v_sin;
+  float fy3=ry3*t.kamera_v_cos+rz3*t.kamera_v_sin;
+  float fz3=rz3*t.kamera_v_cos-ry3*t.kamera_v_sin;
   // Gem blokeringer {{{
   if (ry1<5*min_afstand && ry1>0 && abs(rx1)<min_afstand && abs(rz1)<min_afstand)
   { t.frem_blokeret=true;
@@ -1096,116 +1103,55 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
 // hvilke taster der er trykket, samt
 // spillerens retning
 inline void bevaeg(Tilstand &t, size_t ticks=10) // {{{
-{ t.mig_acceleration_x*=0.8;
-  t.mig_acceleration_y*=0.8;
-  t.mig_acceleration_z=-0.03;
-  t.mig_hastighed_x*=0.8;
-  t.mig_hastighed_y*=0.8;
-  //t.mig_hastighed_z*=0.8;
-  if (t.mig_skyd_ventetid-(int)ticks<=0)
-    t.mig_skyd_ventetid=0;
-  else
-    t.mig_skyd_ventetid-=(int)ticks;
+{ t.mig_hastighed_x*=0.9;
+  t.mig_hastighed_y*=0.9;
+  t.mig_hastighed_z*=0.7;
 
-  if (t.tast_skyd && t.mig_skyd_ventetid==0) // Skyd
-  { if (t.mig_vaaben==0)
-    { t.ting.push_back(new Granat(t.mig_x+t.mig_h_cos*t.mig_v_cos*3.0, // x
-                                  t.mig_y+t.mig_h_sin*t.mig_v_cos*3.0, // y
-                                  t.mig_z+t.mig_v_sin*3.0,             // z
-                                  t.mig_h,                             // h
-                                  t.mig_v,                             // v
-                                  15.0                                 // fart
-                                 ));
-      t.mig_skyd_ventetid+=500;
-    }
-    else if (t.mig_vaaben==1)
-    { t.ting.push_back(new Projektil(t.mig_x+t.mig_h_cos*t.mig_v_cos*4.0, // x
-                                     t.mig_y+t.mig_h_sin*t.mig_v_cos*4.0, // y
-                                     t.mig_z+t.mig_v_sin*4.0,             // z
-                                     t.mig_h,                             // h
-                                     t.mig_v                              // v
-                                    ));
-      t.mig_skyd_ventetid+=1000;
-    }
-  }
-  if (t.tast_vaaben)
-  { t.mig_vaaben=(t.mig_vaaben+1)%2;
-    t.tast_vaaben=false;
-  }
-  if (t.tast_op)
+  if (t.tast_frem)
   { if (t.frem_blokeret) // Rammer objekt
     { t.mig_hastighed_x=0;
-      t.mig_acceleration_x=0;
       t.mig_hastighed_y=0;
-      t.mig_acceleration_y=0;
     }
     else                 // Accelerer
-    { t.mig_acceleration_x+=t.mig_h_cos*0.2;
-      t.mig_acceleration_y+=t.mig_h_sin*0.2;
+    { t.mig_hastighed_x+=t.mig_h_cos*0.1;
+      t.mig_hastighed_y+=t.mig_h_sin*0.1;
     }
   }
-  if (t.tast_ned)
+  if (t.tast_bak)
   { if (t.tilbage_blokeret) // Rammer objekt
     { t.mig_hastighed_x=0;
-      t.mig_acceleration_x=0;
       t.mig_hastighed_y=0;
-      t.mig_acceleration_y=0;
     }
     else                    // Accelerer
-    { t.mig_acceleration_x-=t.mig_h_cos*0.2;
-      t.mig_acceleration_y-=t.mig_h_sin*0.2;
+    { t.mig_hastighed_x-=t.mig_h_cos*0.05;
+      t.mig_hastighed_y-=t.mig_h_sin*0.05;
     }
   }
   if (t.tast_venstre)
-  { if (t.venstre_blokeret) // Rammer objekt
-    { t.mig_hastighed_x=0;
-      t.mig_acceleration_x=0;
-      t.mig_hastighed_y=0;
-      t.mig_acceleration_y=0;
-    }
-    else                    // Roter
-    { double v=t.mig_hastighed_x*t.mig_h_cos
-	      +t.mig_hastighed_y*t.mig_h_sin
-	      +t.mig_hastighed_z*t.mig_v_sin;
-      t.mig_h+=v*0.01;
-      t.mig_h_cos=cos(t.mig_h);
-      t.mig_h_sin=sin(t.mig_h);
-    }
+  { double v=t.mig_hastighed_x*t.mig_h_cos
+	          +t.mig_hastighed_y*t.mig_h_sin
+	          +t.mig_hastighed_z*t.mig_v_sin;
+    t.mig_h+=v*0.01;
+    t.mig_h_cos=cos(t.mig_h);
+    t.mig_h_sin=sin(t.mig_h);
   }
   if (t.tast_hoejre)
-  { if (t.hoejre_blokeret) // Rammer objekt
-    { t.mig_hastighed_x=0;
-      t.mig_acceleration_x=0;
-      t.mig_hastighed_y=0;
-      t.mig_acceleration_y=0;
-    }
-    else
-    { double v=t.mig_hastighed_x*t.mig_h_cos
-	      +t.mig_hastighed_y*t.mig_h_sin
-	      +t.mig_hastighed_z*t.mig_v_sin;
-      t.mig_h-=v*0.01;
-      t.mig_h_cos=cos(t.mig_h);
-      t.mig_h_sin=sin(t.mig_h);
-    }
+  { double v=t.mig_hastighed_x*t.mig_h_cos
+	          +t.mig_hastighed_y*t.mig_h_sin
+	          +t.mig_hastighed_z*t.mig_v_sin;
+    t.mig_h-=v*0.01;
+    t.mig_h_cos=cos(t.mig_h);
+    t.mig_h_sin=sin(t.mig_h);
   }
+  t.mig_hastighed_z-=0.2;
   if (t.mig_hastighed_z<=0)
   { if (t.ned_blokeret || t.mig_z<=0) // Lander
-    { t.mig_acceleration_z=0;
       t.mig_hastighed_z=0;
-      //if (t.tast_mellemrum) // # Hop
-      //  t.mig_hastighed_z=1.3;
-    }
   }
   else if (t.mig_hastighed_z>=0)
   { if (t.op_blokeret)
-    { t.mig_acceleration_z=0;
       t.mig_hastighed_z=0;
-    } 
   }
-
-  t.mig_hastighed_x+=t.mig_acceleration_x;
-  t.mig_hastighed_y+=t.mig_acceleration_y;
-  t.mig_hastighed_z+=t.mig_acceleration_z;
 
   t.mig_x+=t.mig_hastighed_x*0.01*ticks;
   t.mig_y+=t.mig_hastighed_y*0.01*ticks;
@@ -1218,6 +1164,16 @@ inline void bevaeg(Tilstand &t, size_t ticks=10) // {{{
       t.ting.erase(t.ting.begin()+(i--));
     }
   }
+  float dest_x=t.mig_x-t.mig_h_cos*10-t.mig_hastighed_x*10;
+  float dest_y=t.mig_y-t.mig_h_sin*10-t.mig_hastighed_y*10;
+  float dest_z=t.mig_z-t.mig_v_sin*10-t.mig_hastighed_z*10;
+  t.kamera_x=t.kamera_x+(dest_x-t.kamera_x)*0.005*ticks;
+  t.kamera_y=t.kamera_y+(dest_y-t.kamera_y)*0.005*ticks;
+  t.kamera_z=t.kamera_z+(dest_z-t.kamera_z)*0.005*ticks;
+  t.kamera_h_cos=((t.mig_x-t.kamera_x)/sqrt((t.mig_x-t.kamera_x)*(t.mig_x-t.kamera_x)+(t.mig_y-t.kamera_y)*(t.mig_y-t.kamera_y)));
+  t.kamera_h_sin=((t.mig_y-t.kamera_y)/sqrt((t.mig_x-t.kamera_x)*(t.mig_x-t.kamera_x)+(t.mig_y-t.kamera_y)*(t.mig_y-t.kamera_y)));
+  t.kamera_v_cos=1.0;
+  t.kamera_v_sin=0.0;
 } // }}}
 
 // Håndter hændelser som tastetryk og
@@ -1240,23 +1196,16 @@ inline void haandter_haendelse(const SDL_Event &e, Tilstand &t) // {{{
         case 's': // DOWN
         case 274: // DOWN
           //cout << "Key Down" << endl;
-          t.tast_ned=true;
+          t.tast_bak=true;
           break;
         case 'w': // UP
         case 273: // UP
           //cout << "Key Up" << endl;
-          t.tast_op=true;
+          t.tast_frem=true;
           break;
         case 32: // MELLEMRUM
           //cout << "Key Space" << endl;
           t.tast_mellemrum=true;
-          break;
-        case 'e': // SKYD
-          //cout << "Key Space" << endl;
-          t.tast_skyd=true;
-          break;
-        case 'q': // VÅBEN
-          t.tast_vaaben=true;
           break;
         case 27: // ESCAPE
           t.quit=true;
@@ -1283,24 +1232,16 @@ inline void haandter_haendelse(const SDL_Event &e, Tilstand &t) // {{{
         case 's': // DOWN
         case 274: // DOWN
           //cout << "Key Down" << endl;
-          t.tast_ned=false;
+          t.tast_bak=false;
           break;
         case 'w': // UP
         case 273: // UP
           //cout << "Key Up" << endl;
-          t.tast_op=false;
+          t.tast_frem=false;
           break;
         case 32: // MELLEMRUM
           //cout << "Key Space" << endl;
           t.tast_mellemrum=false;
-          break;
-        case 'e': // SKYD
-          //cout << "Key Space" << endl;
-          t.tast_skyd=false;
-          break;
-        case 'q': // VÅBEN
-          //cout << "Key Space" << endl;
-          t.tast_vaaben=false;
           break;
         case 27: // ESCAPE
           t.quit=true;
@@ -1384,10 +1325,11 @@ void *spil(void *t) // {{{
       zbuf[i]=maks_afstand;
 
     //Tegn Bil
-    Ting bil("bil1",tilstand.mig_x,tilstand.mig_y,tilstand.mig_z,0.0,0.0,0.0);
+    Ting bil("bil1",tilstand.mig_x,tilstand.mig_y,tilstand.mig_z,tilstand.mig_h,tilstand.mig_v,0.0);
     tegn_ting(primary,zbuf,tilstand,bil);
 
     // Nulstil blokeringer
+    //FindBlokeringer(tilstand);
     tilstand.frem_blokeret=false;
     tilstand.tilbage_blokeret=false;
     tilstand.venstre_blokeret=false;
@@ -1457,32 +1399,6 @@ void *spil(void *t) // {{{
     ss << "FPS: " << 1000.0/(float(frameTicks));
     stringRGBA(primary,5,5,ss.str().c_str(),0,0,255,255);
     // Flip opdaterer skærmen med det nye billede
-    // }}}
-    // Tegn Overlægning {{{
-    { // Sigtekorn
-      SDL_Rect pos;
-      // Våben
-      if (tilstand.mig_vaaben==0) // granat
-      { pos.w=BilledeBibliotek["granat"]->w;
-        pos.h=BilledeBibliotek["granat"]->h;
-        pos.x=(bredde-pos.w);
-        pos.y=(hoejde-pos.h);
-        SDL_BlitSurface( BilledeBibliotek["granat"], NULL, primary, &pos );
-      }
-      else if (tilstand.mig_vaaben==1) // pistol
-      { pos.w=BilledeBibliotek["pistol"]->w;
-        pos.h=BilledeBibliotek["pistol"]->h;
-        pos.x=(bredde-pos.w);
-        pos.y=(hoejde-pos.h);
-        SDL_BlitSurface( BilledeBibliotek["pistol"], NULL, primary, &pos );
-        // Sigtekorn
-        pos.w=BilledeBibliotek["sigtekorn"]->w;
-        pos.h=BilledeBibliotek["sigtekorn"]->h;
-        pos.x=(bredde-pos.w)/2;
-        pos.y=(hoejde-pos.h)/2;
-        SDL_BlitSurface( BilledeBibliotek["sigtekorn"], NULL, primary, &pos );
-      }
-    }
     // }}}
     // Opdater skærm
     SDL_Flip(primary);
@@ -1864,7 +1780,7 @@ int main(int argc, char **argv) // {{{{
   }
 
   // Init biblioteker
-  FigurBibliotek["bil1"]=smaa_trekanter(skaler_ting(-0.5,-0.5,-0.5,0.5,0.5,0.5,laes_obj("ting/bil1.obj")));
+  FigurBibliotek["bil1"]=smaa_trekanter(skaler_ting(-0.5,0.5,0.0,0.5,-0.5,0.5,laes_obj("ting/bil1.obj")));
   FigurBibliotek["pengvin"]=smaa_trekanter(skaler_ting(-1,-1,-2,1,1,2,laes_obj("ting/pengvin.obj")));
   BilledeBibliotek["sigtekorn"]=IMG_Load("billeder/sigtekorn.png");
   BilledeBibliotek["granat"]=IMG_Load("billeder/granat.png");
