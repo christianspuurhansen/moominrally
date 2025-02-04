@@ -493,6 +493,9 @@ class Tilstand // {{{
     float mig_v;
     float mig_v_cos;
     float mig_v_sin;
+    float mig_t;
+    float mig_t_cos;
+    float mig_t_sin;
     // Bilens hjul
     Hjul hjul1;
     Hjul hjul2;
@@ -542,6 +545,9 @@ Tilstand::Tilstand() // {{{
 , mig_v(0.0)
 , mig_v_cos(1.0)
 , mig_v_sin(0.0)
+, mig_t(0.0)
+, mig_t_cos(1.0)
+, mig_t_sin(0.0)
 , kamera_x(mig_x)
 , kamera_y(mig_y-3.0)
 , kamera_z(mig_z+2.0)
@@ -722,7 +728,7 @@ void hop(const Trekant &t, float &vx, float &vy, float &vz, float px, float py, 
   
   if (volume>=1.0)
   { Mix_Volume(1,int(volume));
-    Mix_PlayChannel( 1, LydeBibliotek["hop"], 0 );
+    //Mix_PlayChannel( 1, LydeBibliotek["hop"], 0 );
   }
 } // }}}
 string Hjul::Type() // {{{
@@ -737,7 +743,7 @@ void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
   minZhastighed-=0.05*float(ticks);
   minXhastighed*=0.995;
   minYhastighed*=0.995;
-  minZhastighed*=0.98;
+  minZhastighed*=0.995;
   //minV=(minV*float(10000-ticks)-1.57*float(ticks))/10000.0;
   float mindsteAfstand=0.5f;
   const Trekant *ramt=NULL;
@@ -747,37 +753,62 @@ void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
       { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
         for (size_t i=0; i<omraade.size(); ++i)
         { const Trekant *t=omraade[i];
-          if (dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ)<=mindsteAfstand)
-          { // Tæt på
-            if (dot(minXhastighed,minYhastighed,minZhastighed,t->minX1-minX,t->minY1-minY,t->minZ1-minZ)>0.0f)
-            { // Rammer
-              mindsteAfstand=dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ);
-              ramt=t;
+          float d1=dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ);
+          if (d1<=0.5) // Hjul radius
+          { // Rammer
+            float retningX=minX-t->minX1;
+            float retningY=minY-t->minY1;
+            float retningZ=minZ-t->minZ1;
+            if (d1<=0.001f)
+            { retningX=0.1f;
+              d1=0.1f;
             }
+            minX+=(0.5-d1)*retningX; // Correct position
+            minY+=(0.5-d1)*retningY; // Correct position
+            minZ+=(0.5-d1)*retningZ; // Correct position
+            minXhastighed+=retningX*0.001f/d1; // Bounce
+            minYhastighed+=retningY*0.001f/d1; // Bounce
+            minZhastighed+=retningZ*0.001f/d1; // Bounce
           }
-          if (dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ)<=mindsteAfstand)
-          { // Tæt på
-            if (dot(minXhastighed,minYhastighed,minZhastighed,t->minX1-minX,t->minY1-minY,t->minZ1-minZ)>0.0f)
-            { // Rammer
-              mindsteAfstand=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
-              ramt=t;
+          float d2=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
+          if (d2<=0.5)
+          { float retningX=minX-t->minX2;
+            float retningY=minY-t->minY2;
+            float retningZ=minZ-t->minZ2;
+            if (d2<=0.001f)
+            { retningX=0.1f;
+              d2=0.1f;
             }
+            minX+=(0.5-d2)*retningX; // Correct position
+            minY+=(0.5-d2)*retningY; // Correct position
+            minZ+=(0.5-d2)*retningZ; // Correct position
+            minXhastighed+=retningX*0.001f/d2; // Bounce
+            minYhastighed+=retningY*0.001f/d2; // Bounce
+            minZhastighed+=retningZ*0.001f/d2; // Bounce
           }
-          if (dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ)<=mindsteAfstand)
-          { // Tæt på
-            if (dot(minXhastighed,minYhastighed,minZhastighed,t->minX3-minX,t->minY3-minY,t->minZ3-minZ)>0.0f)
-            { // Rammer
-              mindsteAfstand=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
-              ramt=t;
+          float d3=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
+          if (d3<=0.5)
+          { float retningX=minX-t->minX3;
+            float retningY=minY-t->minY3;
+            float retningZ=minZ-t->minZ3;
+            if (d3<=0.001f)
+            { retningX=0.1f;
+              d3=0.1f;
             }
+            minX+=(0.5-d3)*retningX; // Correct position
+            minY+=(0.5-d3)*retningY; // Correct position
+            minZ+=(0.5-d3)*retningZ; // Correct position
+            minXhastighed+=retningX*0.001f/d3; // Bounce
+            minYhastighed+=retningY*0.001f/d3; // Bounce
+            minZhastighed+=retningZ*0.001f/d3; // Bounce
           }
         }
       }
     }
   }
-  if (ramt)
-  { hop(*ramt,minXhastighed,minYhastighed,minZhastighed,tilstand.mig_x,tilstand.mig_y,tilstand.mig_z);
-  }
+  //if (ramt)
+  //{ hop(*ramt,minXhastighed,minYhastighed,minZhastighed,tilstand.mig_x,tilstand.mig_y,tilstand.mig_z);
+  //}
 
   SetRetning(minH);
 
@@ -1089,6 +1120,20 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
   }
 } // }}}
 
+inline void find_rotation(float x1, float y1, float z1, float x2, float y2, float z2, float &h_cos, float &h_sin, float &v_cos, float &v_sin) // {{{
+{ float dh=dist(x1,y1,0.0,x2,y2,0.0f);
+  if (dh>0)
+  { h_cos=(x1-x2)/dh;
+    h_sin=(y1-y2)/dh;
+    //h=atan2(h_sin,h_cos);
+  }
+  float dv=dist(0.0,0.0,z1,0.0,dh,z2);
+  if (dv>0.0f)
+  { v_cos=dh/dv;
+    v_sin=(z1-z2)/dv;
+    //v=atan2(v_sin,v_cos);
+  }
+} // }}}
 // Bevæg spilleren ud fra tilstanden om
 // hvilke taster der er trykket, samt
 // spillerens retning
@@ -1147,27 +1192,48 @@ inline void bevaeg(Tilstand &t, size_t ticks=10) // {{{
   t.mig_y=(t.hjul1.minY+t.hjul2.minY+t.hjul3.minY+t.hjul4.minY)/4.0;
   t.mig_z=(t.hjul1.minZ+t.hjul2.minZ+t.hjul3.minZ+t.hjul4.minZ)/4.0;
   // Roter bilen bedst nuligt
-  float d14h=dist(t.hjul1.minX,t.hjul1.minY,0.0,t.hjul4.minX,t.hjul4.minY,0.0);
-  t.mig_h_cos=(t.hjul1.minX-t.hjul4.minX)/d14h;
-  t.mig_h_sin=(t.hjul1.minY-t.hjul4.minY)/d14h;
+  float h14_cos, h14_sin, v14_cos,v14_sin;
+  find_rotation(t.hjul1.minX,t.hjul1.minY,t.hjul1.minZ,t.hjul4.minX,t.hjul4.minY,t.hjul4.minZ,h14_cos,h14_sin,v14_cos,v14_sin);
+  float h23_cos, h23_sin, v23_cos, v23_sin;
+  find_rotation(t.hjul2.minX,t.hjul2.minY,t.hjul2.minZ,t.hjul3.minX,t.hjul3.minY,t.hjul3.minZ,h23_cos,h23_sin,v23_cos,v23_sin);
+  float hr12_cos, hr12_sin, t12_cos, t12_sin;
+  find_rotation(t.hjul1.minX,t.hjul1.minY,t.hjul1.minZ,t.hjul2.minX,t.hjul2.minY,t.hjul2.minZ,hr12_cos,hr12_sin,t12_cos,t12_sin);
+  float hr43_cos, hr43_sin, t43_cos, t43_sin;
+  find_rotation(t.hjul4.minX,t.hjul4.minY,t.hjul4.minZ,t.hjul3.minX,t.hjul3.minY,t.hjul3.minZ,hr43_cos,hr43_sin,t43_cos,t43_sin);
+  //float h12_cos=hr12_sin;
+  //float h12_sin=-hr12_cos;
+  //float h43_cos=hr43_sin;
+  //float h43_sin=-hr43_cos;
+  // Gem rotation
+  t.mig_h_cos=(h14_cos+h23_cos)/2.0;
+  t.mig_h_sin=(h14_sin+h23_sin)/2.0;
   t.mig_h=atan2(t.mig_h_sin,t.mig_h_cos);
-  float d14v=dist(0.0,0.0,t.hjul1.minZ,0.0,d14h,t.hjul4.minZ);
-  t.mig_v_cos=d14h/d14v;
-  t.mig_v_sin=(t.hjul1.minZ-t.hjul4.minZ)/d14v;
+  t.mig_h_cos=cos(t.mig_h); // Recompute to normalize
+  t.mig_h_sin=sin(t.mig_h); // Recompute to normalize
+  t.mig_v_cos=(v14_cos+v23_cos)/2.0;
+  t.mig_v_sin=(v14_sin+v23_sin)/2.0;
   t.mig_v=atan2(t.mig_v_sin,t.mig_v_cos);
+  t.mig_v_cos=cos(t.mig_v); // Recompute to normalize
+  t.mig_v_sin=sin(t.mig_v); // Recompute to normalize
+  //t.mig_t_cos=(t12_cos+t43_cos)/2.0;
+  //t.mig_t_sin=(t12_sin+t43_sin)/2.0;
+  //t.mig_t=atan2(t.mig_t_sin,t.mig_t_cos);
+  //t.mig_t_cos=cos(t.mig_t); // Recompute to normalize
+  //t.mig_t_sin=sin(t.mig_t); // Recompute to normalize
   // Sæt hjulene på bilen igen
-  t.hjul1.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2-t.mig_h_sin);
-  t.hjul1.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2+t.mig_h_cos);
-  t.hjul1.minZ=t.mig_z+t.mig_v_sin*2;
-  t.hjul2.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2+t.mig_h_sin);
-  t.hjul2.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2-t.mig_h_cos);
-  t.hjul2.minZ=t.mig_z+t.mig_v_sin*2;
-  t.hjul3.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2+t.mig_h_sin);
-  t.hjul3.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2-t.mig_h_cos);
-  t.hjul3.minZ=t.mig_z-t.mig_v_sin*2;
-  t.hjul4.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2-t.mig_h_sin);
-  t.hjul4.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2+t.mig_h_cos);
-  t.hjul4.minZ=t.mig_z-t.mig_v_sin*2;
+  // FIXME: tegn på papir, så vi kan finde formlen for de korrekte koordinater
+  t.hjul1.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2-t.mig_h_sin/**t.mig_t_cos*/);
+  t.hjul1.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2+t.mig_h_cos/**t.mig_t_cos*/);
+  t.hjul1.minZ=t.mig_z+t.mig_v_sin*2/*+t.mig_t_sin*/;
+  t.hjul2.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2+t.mig_h_sin/**t.mig_t_cos*/);
+  t.hjul2.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2-t.mig_h_cos/**t.mig_t_cos*/);
+  t.hjul2.minZ=t.mig_z+t.mig_v_sin*2/*+t.mig_t_sin*/;
+  t.hjul3.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2+t.mig_h_sin/**t.mig_t_cos*/);
+  t.hjul3.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2-t.mig_h_cos/**t.mig_t_cos*/);
+  t.hjul3.minZ=t.mig_z-t.mig_v_sin*2/*+t.mig_t_cos*/;
+  t.hjul4.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2-t.mig_h_sin/**t.mig_t_cos*/);
+  t.hjul4.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2+t.mig_h_cos/**t.mig_t_cos*/);
+  t.hjul4.minZ=t.mig_z-t.mig_v_sin*2/*+t.mig_t_sin*/;
   // Flyt kamera
   float dest_x=t.mig_x-t.mig_h_cos*10;
   float dest_y=t.mig_y-t.mig_h_sin*10;
