@@ -19,8 +19,12 @@ using namespace std;
 size_t bredde=1024;
 size_t hoejde=768;
 float maks_afstand=150.0;
-float min_afstand=0.5;
-  
+float min_afstand=0.25;
+float friktion=0.992;
+float friktion_fri=0.9995;
+float tyngdekraft=0.02;
+float gear_faktor=0.43;  
+float frem_faktor=0.02;
 // Matematiske grundfunktioner
 inline float sqr(float x) // {{{
 { return x*x;
@@ -37,6 +41,52 @@ float dist(float x1, float y1, float z1, float x2, float y2, float z2) // {{{
 { return sqrt(sqr(x2-x1)+sqr(y2-y1)+sqr(z2-z1));
 } // }}}
 
+// Roter punkter
+inline void roter2d(float x0, float y0, float ang_cos, float ang_sin, float &x1, float &y1) // {{{
+{ x1=ang_cos*x0-ang_sin*y0;
+  y1=ang_sin*x0+ang_cos*y0;
+} // }}}
+inline void roter3d(float x1, float y1, float z1, float h_cos, float h_sin, float v_cos, float v_sin, float t_cos, float t_sin, float &x2, float &y2, float &z2) // {{{
+{ // Roter om x-aksen
+  float x_1=x1;
+  float y_1, z_1;
+  roter2d(y1,z1,t_cos,t_sin,y_1,z_1);
+  // Roter om y-aksen
+  float x_2,z_2;
+  roter2d(x_1,z_1,v_cos,v_sin,x_2,z_2);
+  float y_2=y_1;
+  // Roter om z-aksen
+  roter2d(x_2,y_2,h_cos,h_sin,x2,y2);
+  z2=z_2;
+} // }}}
+inline void retor3d(float x1, float y1, float z1, float h_cos, float h_sin, float v_cos, float v_sin, float t_cos, float t_sin, float &x2, float &y2, float &z2) // {{{
+{ // Roter om y-aksen
+  float x_1,z_1;
+  roter2d(x1,z1,v_cos,v_sin,x_1,z_1);
+  float y_1=y1;
+  // Roter om x-aksen
+  float x_2=x_1;
+  float y_2, z_2;
+  roter2d(y_1,z_1,t_cos,t_sin,y_2,z_2);
+  // Roter om z-aksen
+  roter2d(x_2,y_2,h_cos,h_sin,x2,y2);
+  z2=z_2;
+} // }}}
+inline void find_rotation(float x1, float y1, float z1, float x2, float y2, float z2, float &h_cos, float &h_sin, float &v_cos, float &v_sin) // {{{
+{ float dh=dist(x1,y1,0.0,x2,y2,0.0f);
+  if (dh>0)
+  { h_cos=(x2-x1)/dh;
+    h_sin=(y2-y1)/dh;
+    //h=atan2(h_sin,h_cos);
+  }
+  float dv=dist(0.0,0.0,z1,0.0,dh,z2);
+  if (dv>0.0f)
+  { v_cos=dh/dv;
+    v_sin=(z2-z1)/dv;
+    //v=atan2(v_sin,v_cos);
+  }
+} // }}}
+
 // fade_color beregner hvorledes en
 // farve falmer, jo længere væk fra
 // spilleren den er
@@ -49,6 +99,15 @@ inline float fade(float v, float d) // {{{
 } // }}}
 inline unsigned char fade_color(unsigned char col, float d) // {{{
 { return (unsigned char)fade((float)col,d);
+} // }}}
+inline unsigned char fade_rcolor(unsigned char col, float d) // {{{
+{ return (unsigned char)fade((float)(col),d);
+} // }}}
+inline unsigned char fade_gcolor(unsigned char col, float d) // {{{
+{ return (unsigned char)fade((float)(col),d);
+} // }}}
+inline unsigned char fade_bcolor(unsigned char col, float d) // {{{
+{ return (unsigned char)fade((float)(col),d);
 } // }}}
 
 /* Definer hvad en trekant er
@@ -175,12 +234,12 @@ class Ting // {{{
 { public:
     Ting();
     Ting(stringstream &ss);
-    Ting(const string &figur, float x, float y, float z, float h, float v, float fart);
+    Ting(const string &figur, float x, float y, float z, float h, float v, float t, float fart);
     virtual ~Ting();
 
     string minFigur;
-    float minX, minY, minZ, minH, minV, minFart;
-    float minV_cos, minV_sin, minH_cos, minH_sin;
+    float minX, minY, minZ, minH, minV, minT, minFart;
+    float minT_cos, minT_sin, minV_cos, minV_sin, minH_cos, minH_sin;
     bool sendt;
 
     virtual string Type();
@@ -188,7 +247,9 @@ class Ting // {{{
     virtual bool Forsvind();
     virtual string TilTekst();
     void BeregnRetning()
-    { minV_cos=cos(minV);
+    { minT_cos=cos(minT);
+      minT_sin=sin(minT);
+      minV_cos=cos(minV);
       minV_sin=sin(minV);
       minH_cos=cos(minH);
       minH_sin=sin(minH);
@@ -200,6 +261,7 @@ Ting::Ting() // {{{
   minZ=0.0;
   minH=0.0;
   minV=0.0;
+  minT=0.0;
   minFart=0.0;
   BeregnRetning();
   sendt=false;
@@ -211,17 +273,19 @@ Ting::Ting(stringstream &ss) // {{{
   ss>>minZ;
   ss>>minH;
   ss>>minV;
+  ss>>minT;
   ss>>minFart;
   BeregnRetning();
   sendt=false;
 } // }}}
-Ting::Ting(const string &figur, float x, float y, float z, float h, float v, float fart) // {{{
+Ting::Ting(const string &figur, float x, float y, float z, float h, float v, float t, float fart) // {{{
 { minFigur=figur;
   minX=x;
   minY=y;
   minZ=z;
   minH=h;
   minV=v;
+  minT=t;
   minFart=fart;
   BeregnRetning();
   sendt=false;
@@ -240,7 +304,7 @@ bool Ting::Forsvind() // {{{
 } // }}}
 string Ting::TilTekst() // {{{
 { stringstream resultat;
-  resultat << minFigur << " " << minX << " " << minY << " " << minZ << " " << minH << " " << minV << " " << minFart;
+  resultat << minFigur << " " << minX << " " << minY << " " << minZ << " " << minH << " " << minV << " " << minT << " " << minFart;
   return resultat.str();
 } // }}}
 map<string,vector<Trekant> > FigurBibliotek;
@@ -252,7 +316,7 @@ class Hjul : public Ting // {{{
 { public:
     Hjul();
     Hjul(stringstream &ss);
-    Hjul(float x, float y, float z, float h, float v, float fart);
+    Hjul(float x, float y, float z, float h, float v, float t, float fart);
     virtual ~Hjul();
 
     virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
@@ -262,11 +326,66 @@ class Hjul : public Ting // {{{
     float minXhastighed;
     float minYhastighed;
     float minZhastighed;
-    void SetRetning(float h) // {{{
-    { minV=minX-int(minX/(2.0*3.1415))*(2.0*3.1415);
-      minH=h;
+    bool minKontakt; // Har kontakt med jorden
+    void Spin(float ang) // {{{
+    { minV-=ang;
+      minV=minV-((int)(minV/M_PI))*M_PI;
+    } // }}}
+    void SetRetning(float h, float t) // {{{
+    { minH=h;
+      minT=t;
       BeregnRetning();
     } // }}}
+}; // }}}
+
+// Definer bil som en ting
+class Bil : public Ting // {{{
+{ public:
+    Bil();
+    Bil(stringstream &ss);
+    Bil(float x, float y, float z, float h, float v, float t, float fart);
+    virtual ~Bil();
+
+    virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
+    virtual bool Forsvind();
+    virtual string Type();
+    virtual string TilTekst();
+
+    virtual void Frem(size_t ticks);
+    virtual void Tilbage(size_t ticks);
+    virtual void SetRetning(bool venstre, bool hoejre);
+
+    Hjul minHjul1;
+    Hjul minHjul2;
+    Hjul minHjul3;
+    Hjul minHjul4;
+
+    bool minSmadret;
+    int minSmadretTid;
+}; // }}}
+
+// Definer bil som en ting
+class Fly : public Ting // {{{
+{ public:
+    Fly();
+    Fly(stringstream &ss);
+    Fly(float x, float y, float z, float h, float v, float t, float fart);
+    virtual ~Fly();
+
+    virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
+    virtual bool Forsvind();
+    virtual string Type();
+    virtual string TilTekst();
+
+    virtual void Frem(size_t ticks);
+    virtual void Tilbage(size_t ticks);
+    virtual void SetRetning(bool venstre, bool hoejre);
+
+    // Propel minPropel;
+    float minZhastighed;
+    bool minSmadret;
+    int minSmadretTid;
+    bool minKontakt;
 }; // }}}
 
 // Indlæs 3d obj fil til trekants liste
@@ -461,9 +580,8 @@ vector<Trekant> skaler_ting(float minx, float miny, float minz, float maxx, floa
 /* Definer hvad en tilstand er.
  * I en tilstand gemmes de informationer,
  * der beskriver spillets tilstand.
- * Det inkluderer spillerens position
- * (mig_7x, mig_y, mig_z) og horisontale
- * og vertikale retning (mig_h og mig_v).
+ * Det inkluderer bilen og kameraets position
+ * og horisontale og vertikale retning (mig_h og mig_v).
  * Desuden gemmes hvilke spillertaster,
  * der er trykket ned, og om spillet er
  * afsluttet.
@@ -483,24 +601,8 @@ class Tilstand // {{{
     Omraader omraader;
     // Objekter
     vector<Ting*> ting;
-    // Bilens position og retning
-    float mig_x;
-    float mig_y;
-    float mig_z;
-    float mig_h;
-    float mig_h_cos;
-    float mig_h_sin;
-    float mig_v;
-    float mig_v_cos;
-    float mig_v_sin;
-    float mig_t;
-    float mig_t_cos;
-    float mig_t_sin;
-    // Bilens hjul
-    Hjul hjul1;
-    Hjul hjul2;
-    Hjul hjul3;
-    Hjul hjul4;
+    // Bilen
+    Fly mig;
     // Kameraets position (retning er altid imod bilen)
     float kamera_x;
     float kamera_y;
@@ -536,28 +638,17 @@ Tilstand::Tilstand() // {{{
 , tast_frem(false)
 , tast_bak(false)
 , tast_mellemrum(false)
-, mig_x(0.0)
-, mig_y(0.0)
-, mig_z(30.0)
-, mig_h(M_PI/2)
-, mig_h_cos(0.0)
-, mig_h_sin(1.0)
-, mig_v(0.0)
-, mig_v_cos(1.0)
-, mig_v_sin(0.0)
-, mig_t(0.0)
-, mig_t_cos(1.0)
-, mig_t_sin(0.0)
-, kamera_x(mig_x)
-, kamera_y(mig_y-3.0)
-, kamera_z(mig_z+2.0)
+, mig(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0)
+, kamera_x(mig.minX)
+, kamera_y(mig.minY-3.0)
+, kamera_z(mig.minZ+2.0)
 , kamera_h_cos(0.0)
 , kamera_h_sin(1.0)
 , kamera_v_cos(1.0)
 , kamera_v_sin(0.0)
 , checkpoint_x(0.0)
 , checkpoint_y(0.0)
-, checkpoint_z(30.0)
+, checkpoint_z(10.0)
 , frem_blokeret(false)
 , tilbage_blokeret(false)
 , venstre_blokeret(false)
@@ -574,7 +665,6 @@ Tilstand::~Tilstand() // {{{
     ting.pop_back();
   }
 } // }}}
-
 
 void indlaes_bane(const string &fname, Tilstand &tilstand) // {{{
 { // Åben 3D-Model
@@ -596,7 +686,7 @@ void indlaes_bane(const string &fname, Tilstand &tilstand) // {{{
 class Projektil : public Ting // {{{
 { public:
    Projektil(stringstream &ss);
-   Projektil(float x, float y, float z, float h, float v);
+   Projektil(float x, float y, float z, float h, float v, float t);
    virtual ~Projektil();
 
    virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
@@ -618,8 +708,8 @@ Projektil::Projektil(stringstream &ss) // {{{
   ss>>minAlder;
   minFigur="projektil";
 } // }}}
-Projektil::Projektil(float x, float y, float z, float h, float v) // {{{
-: Ting("projektil",x,y,z,h,v,6.0)
+Projektil::Projektil(float x, float y, float z, float h, float v, float t) // {{{
+: Ting("projektil",x,y,z,h,v,t,6.0)
 { minAlder=0;
 } // }}}
 Projektil::~Projektil() // {{{
@@ -676,8 +766,8 @@ string Projektil::TilTekst() // {{{
 
 // Implementer hjul som en ting
 Hjul::Hjul() // {{{
-: Ting("hjul",0.0,0.0,0.0,0.0,0.0,0.0)
-{ SetRetning(0.0);
+: Ting("hjul",0.0,0.0,0.0,0.0,0.0,0.0,0.0)
+{ SetRetning(0.0,0.0);
   minXhastighed=0.0;
   minYhastighed=0.0;
   minZhastighed=0.0;
@@ -690,72 +780,38 @@ Hjul::Hjul(stringstream &ss) // {{{
   ss>>minH;
   ss>>minV;
   ss>>minFart;
-  SetRetning(minH);
+  SetRetning(minH,minT);
 
   ss>>minXhastighed;
   ss>>minYhastighed;
   ss>>minZhastighed;
 } // }}}
-Hjul::Hjul(float x, float y, float z, float h, float v, float fart) // {{{
-: Ting("hjul",x,y,z,h,v,fart)
+Hjul::Hjul(float x, float y, float z, float h, float v, float t, float fart) // {{{
+: Ting("hjul",x,y,z,h,v,t,fart)
 { minXhastighed=minH_cos*minV_cos*fart;
   minYhastighed=minH_sin*minV_cos*fart;
   minZhastighed=minV_sin*fart;
-  SetRetning(minH);
+  SetRetning(minH,minT);
 } // }}}
 Hjul::~Hjul() // {{{
 {
-} // }}}
-void hop(const Trekant &t, float &vx, float &vy, float &vz, float px, float py, float pz) // {{{
-{ float nx,ny,nz;
-  cross(t.minX2-t.minX1,t.minY2-t.minY1,t.minZ2-t.minZ1,t.minX3-t.minX1,t.minY3-t.minY1,t.minZ3-t.minZ1,nx,ny,nz);
-  float nlen=sqrt(dot(nx,ny,nz,nx,ny,nz));
-  if (nlen==0.0)
-    nlen=1.0; //Sikre vi ikke dividerer med 0
-  nx=nx/nlen;
-  ny=ny/nlen;
-  nz=nz/nlen;
-  float power=dot(nx,ny,nz,vx,vy,vz);
-  if (power>0.0f)
-    power=-power;
-  vx=vx-1.8f*power*nx;
-  vy=vy-1.8f*power*ny;
-  vz=vz-1.8f*power*nz;
-  float afstand=dist(t.minX1,t.minY1,t.minZ1,px,py,pz);
-  if (afstand<0.0001)
-    afstand=0.0001;
-  float volume=fade(128.0f*abs(power),afstand);
-  
-  if (volume>=1.0)
-  { Mix_Volume(1,int(volume));
-    //Mix_PlayChannel( 1, LydeBibliotek["hop"], 0 );
-  }
 } // }}}
 string Hjul::Type() // {{{
 { return "hjul";
 } // }}}
 void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
-{ minX+=minXhastighed*0.001*ticks;
-  minY+=minYhastighed*0.001*ticks;
-  minZ+=minZhastighed*0.001*ticks;
-
-  // Ændre retning
-  minZhastighed-=0.05*float(ticks);
-  minXhastighed*=0.995;
-  minYhastighed*=0.995;
-  minZhastighed*=0.995;
-  //minV=(minV*float(10000-ticks)-1.57*float(ticks))/10000.0;
-  float mindsteAfstand=0.5f;
-  const Trekant *ramt=NULL;
+{ // Kollisioner
+  minKontakt=false;
   for (int x=Omraader::Afsnit(int(minX)-1); x<=Omraader::Afsnit(int(minX)+1); ++x)
   { for (int y=Omraader::Afsnit(int(minY)-1); y<=Omraader::Afsnit(int(minY)+1); ++y)
-    { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+2); ++z)
+    { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+1); ++z)
       { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
         for (size_t i=0; i<omraade.size(); ++i)
         { const Trekant *t=omraade[i];
           float d1=dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ);
           if (d1<=0.5) // Hjul radius
           { // Rammer
+            minKontakt=true;
             float retningX=minX-t->minX1;
             float retningY=minY-t->minY1;
             float retningZ=minZ-t->minZ1;
@@ -766,13 +822,15 @@ void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
             minX+=(0.5-d1)*retningX; // Correct position
             minY+=(0.5-d1)*retningY; // Correct position
             minZ+=(0.5-d1)*retningZ; // Correct position
-            minXhastighed+=retningX*0.001f/d1; // Bounce
-            minYhastighed+=retningY*0.001f/d1; // Bounce
-            minZhastighed+=retningZ*0.001f/d1; // Bounce
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.001f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.001f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.001f; // Bounce
           }
           float d2=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
           if (d2<=0.5)
-          { float retningX=minX-t->minX2;
+          { // Rammer
+            minKontakt=true;
+            float retningX=minX-t->minX2;
             float retningY=minY-t->minY2;
             float retningZ=minZ-t->minZ2;
             if (d2<=0.001f)
@@ -782,13 +840,15 @@ void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
             minX+=(0.5-d2)*retningX; // Correct position
             minY+=(0.5-d2)*retningY; // Correct position
             minZ+=(0.5-d2)*retningZ; // Correct position
-            minXhastighed+=retningX*0.001f/d2; // Bounce
-            minYhastighed+=retningY*0.001f/d2; // Bounce
-            minZhastighed+=retningZ*0.001f/d2; // Bounce
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.001f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.001f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.001f; // Bounce
           }
           float d3=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
           if (d3<=0.5)
-          { float retningX=minX-t->minX3;
+          { // Rammer
+            minKontakt=true;
+            float retningX=minX-t->minX3;
             float retningY=minY-t->minY3;
             float retningZ=minZ-t->minZ3;
             if (d3<=0.001f)
@@ -798,20 +858,33 @@ void Hjul::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
             minX+=(0.5-d3)*retningX; // Correct position
             minY+=(0.5-d3)*retningY; // Correct position
             minZ+=(0.5-d3)*retningZ; // Correct position
-            minXhastighed+=retningX*0.001f/d3; // Bounce
-            minYhastighed+=retningY*0.001f/d3; // Bounce
-            minZhastighed+=retningZ*0.001f/d3; // Bounce
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.001f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.001f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.001f; // Bounce
           }
         }
       }
     }
   }
-  //if (ramt)
-  //{ hop(*ramt,minXhastighed,minYhastighed,minZhastighed,tilstand.mig_x,tilstand.mig_y,tilstand.mig_z);
-  //}
+  // Tyngdekraft
+  minZhastighed-=tyngdekraft*float(ticks);
+  // Friktion
+  if (minKontakt)
+  { minXhastighed*=friktion;
+    minYhastighed*=friktion;
+    minZhastighed*=friktion;
+    //Mix_PlayChannel( 1, LydeBibliotek["hop"], 0 );
+  }
+  else
+  { minXhastighed*=friktion_fri;
+    minYhastighed*=friktion_fri;
+    minZhastighed*=friktion_fri;
+  }
 
-  SetRetning(minH);
-
+  // Udfør bevaegelse
+  minX+=minXhastighed*0.001*ticks;
+  minY+=minYhastighed*0.001*ticks;
+  minZ+=minZhastighed*0.001*ticks;
 } // }}}
 bool Hjul::Forsvind() // {{{
 { return minZ<=-1.0;
@@ -821,6 +894,567 @@ string Hjul::TilTekst() // {{{
   resultat << minX << " " << minY << " " << minZ << " " << minH << " " << minV << " " << minFart << " "
            << minXhastighed << " " << minYhastighed << " " << minZhastighed;
   return resultat.str();
+} // }}}
+
+// Implementer bil som en ting
+Bil::Bil() // {{{
+: Ting("bil",0.0,0.0,0.0,0.0,0.0,0.0,0.0)
+, minHjul1(2, 1, 0, 0, 0, 0, 0)
+, minHjul2(2, -1, 0, 0, 0, 0, 0)
+, minHjul3(-2, -1, 0, 0, 0, 0, 0)
+, minHjul4(-2, 1, 0, 0, 0, 0, 0)
+{ minSmadret=false;
+} // }}}
+Bil::Bil(stringstream &ss) // {{{
+: Ting()
+, minHjul1(ss)
+, minHjul2(ss)
+, minHjul3(ss)
+, minHjul4(ss)
+{ ss>>minSmadret;
+  ss>>minSmadretTid;
+} // }}}
+Bil::Bil(float x, float y, float z, float h, float v, float t, float fart) // {{{
+: Ting("bil",x,y,z,h,v,t,fart)
+, minHjul1(x+2.0,y+1.0,z,h,v,t,fart)
+, minHjul2(x+2.0,y-1.0,z,h,v,t,fart)
+, minHjul3(x-2.0,y-1.0,z,h,v,t,fart)
+, minHjul4(x-2.0,y+1.0,z,h,v,t,fart)
+{ minSmadret=false;
+} // }}}
+Bil::~Bil() // {{{
+{
+} // }}}
+string Bil::Type() // {{{
+{ return "bil";
+} // }}}
+void Bil::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
+{ // Håndter styrt
+  if (minSmadret)
+  { if (minSmadretTid>=5000)
+    { minSmadret=false;
+      minSmadretTid=0;
+      minX=tilstand.checkpoint_x;
+      minY=tilstand.checkpoint_y;
+      minZ=tilstand.checkpoint_z;
+      minH=0;
+      minV=0;
+      minT=0;
+      minH_cos=cos(minH);
+      minH_sin=sin(minH);
+      minV_cos=cos(minV);
+      minV_sin=sin(minV);
+      minT_cos=cos(minT);
+      minT_sin=sin(minT);
+      // Placer hjul1
+      float h1x,h1y,h1z;
+      roter3d(2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h1x,h1y,h1z);
+      minHjul1.minXhastighed+=0;
+      minHjul1.minYhastighed+=0;
+      minHjul1.minZhastighed+=0;
+      minHjul1.minX=minX+h1x;
+      minHjul1.minY=minY+h1y;
+      minHjul1.minZ=minZ+h1z;
+      // Placer hjul 2
+      float h2x;
+      float h2y;
+      float h2z;
+      roter3d(2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h2x,h2y,h2z);
+      minHjul2.minXhastighed+=0;
+      minHjul2.minYhastighed+=0;
+      minHjul2.minZhastighed+=0;
+      minHjul2.minX=minX+h2x;
+      minHjul2.minY=minY+h2y;
+      minHjul2.minZ=minZ+h2z;
+      // Placer hjul 3
+      float h3x;
+      float h3y;
+      float h3z;
+      roter3d(-2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h3x,h3y,h3z);
+      minHjul3.minXhastighed+=0;
+      minHjul3.minYhastighed+=0;
+      minHjul3.minZhastighed+=0;
+      minHjul3.minX=minX+h3x;
+      minHjul3.minY=minY+h3y;
+      minHjul3.minZ=minZ+h3z;
+      // Placer hjul 4
+      float h4x;
+      float h4y;
+      float h4z;
+      roter3d(-2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h4x,h4y,h4z);
+      minHjul4.minXhastighed+=0;
+      minHjul4.minYhastighed+=0;
+      minHjul4.minZhastighed+=0;
+      minHjul4.minX=minX+h4x;
+      minHjul4.minY=minY+h4y;
+      minHjul4.minZ=minZ+h4z;
+    }
+    else
+      minSmadretTid+=ticks;
+  }
+  else
+  {
+    // Bliver bilen ramt
+    for (int x=Omraader::Afsnit(int(minX)-1); x<=Omraader::Afsnit(int(minX)+1); ++x)
+    { for (int y=Omraader::Afsnit(int(minY)-1); y<=Omraader::Afsnit(int(minY)+1); ++y)
+      { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+1); ++z)
+        { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
+          for (size_t i=0; i<omraade.size(); ++i)
+          { const Trekant *t=omraade[i];
+            float d1=dist(t->minX1,t->minY1,t->minZ1,minX-minV_sin*minH_cos,minY-minV_sin*minH_sin,minZ+minV_cos);
+            if (d1<=0.3) // Hjul radius
+            { // Rammer
+              if (!minSmadret)
+              { minSmadret=true;
+                minSmadretTid=0;
+                minHjul1.minXhastighed+=2.0*(minHjul1.minX-minX);
+                minHjul1.minYhastighed+=2.0*(minHjul1.minY-minY);
+                minHjul1.minZhastighed+=2.0*(minHjul1.minZ-minZ);
+                minHjul2.minXhastighed+=2.0*(minHjul2.minX-minX);
+                minHjul2.minYhastighed+=2.0*(minHjul2.minY-minY);
+                minHjul2.minZhastighed+=2.0*(minHjul2.minZ-minZ);
+                minHjul3.minXhastighed+=2.0*(minHjul3.minX-minX);
+                minHjul3.minYhastighed+=2.0*(minHjul3.minY-minY);
+                minHjul3.minZhastighed+=2.0*(minHjul3.minZ-minZ);
+                minHjul4.minXhastighed+=2.0*(minHjul4.minX-minX);
+                minHjul4.minYhastighed+=2.0*(minHjul4.minY-minY);
+                minHjul4.minZhastighed+=2.0*(minHjul4.minZ-minZ);
+                Mix_PlayChannel(2, LydeBibliotek["bang"], 0 );
+              }
+            }
+            float d2=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
+            if (d2<=0.3)
+            { // Rammer
+              if (!minSmadret)
+              { minSmadret=true;
+                minSmadretTid=0;
+                minHjul1.minXhastighed+=2.0*(minHjul1.minX-minX);
+                minHjul1.minYhastighed+=2.0*(minHjul1.minY-minY);
+                minHjul1.minZhastighed+=2.0*(minHjul1.minZ-minZ);
+                minHjul2.minXhastighed+=2.0*(minHjul2.minX-minX);
+                minHjul2.minYhastighed+=2.0*(minHjul2.minY-minY);
+                minHjul2.minZhastighed+=2.0*(minHjul2.minZ-minZ);
+                minHjul3.minXhastighed+=2.0*(minHjul3.minX-minX);
+                minHjul3.minYhastighed+=2.0*(minHjul3.minY-minY);
+                minHjul3.minZhastighed+=2.0*(minHjul3.minZ-minZ);
+                minHjul4.minXhastighed+=2.0*(minHjul4.minX-minX);
+                minHjul4.minYhastighed+=2.0*(minHjul4.minY-minY);
+                minHjul4.minZhastighed+=2.0*(minHjul4.minZ-minZ);
+                Mix_PlayChannel(2, LydeBibliotek["bang"], 0 );
+              }
+            }
+            float d3=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
+            if (d3<=0.3)
+            { // Rammer
+              if (!minSmadret)
+              { minSmadret=true;
+                minSmadretTid=0;
+                minHjul1.minXhastighed+=2.0*(minHjul1.minX-minX);
+                minHjul1.minYhastighed+=2.0*(minHjul1.minY-minY);
+                minHjul1.minZhastighed+=2.0*(minHjul1.minZ-minZ);
+                minHjul2.minXhastighed+=2.0*(minHjul2.minX-minX);
+                minHjul2.minYhastighed+=2.0*(minHjul2.minY-minY);
+                minHjul2.minZhastighed+=2.0*(minHjul2.minZ-minZ);
+                minHjul3.minXhastighed+=2.0*(minHjul3.minX-minX);
+                minHjul3.minYhastighed+=2.0*(minHjul3.minY-minY);
+                minHjul3.minZhastighed+=2.0*(minHjul3.minZ-minZ);
+                minHjul4.minXhastighed+=2.0*(minHjul4.minX-minX);
+                minHjul4.minYhastighed+=2.0*(minHjul4.minY-minY);
+                minHjul4.minZhastighed+=2.0*(minHjul4.minZ-minZ);
+                Mix_PlayChannel(2, LydeBibliotek["bang"], 0 );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Flyt hjulene
+  minHjul1.Bevaeg(ticks,tilstand);
+  minHjul2.Bevaeg(ticks,tilstand);
+  minHjul3.Bevaeg(ticks,tilstand);
+  minHjul4.Bevaeg(ticks,tilstand);
+  // Flyt bilen imellem hjulene
+  minX=(minHjul1.minX+minHjul2.minX+minHjul3.minX+minHjul4.minX)/4.0;
+  minY=(minHjul1.minY+minHjul2.minY+minHjul3.minY+minHjul4.minY)/4.0;
+  minZ=(minHjul1.minZ+minHjul2.minZ+minHjul3.minZ+minHjul4.minZ)/4.0;
+  // Roter bilen bedst nuligt
+  float h14_cos, h14_sin, v14_cos,v14_sin;
+  find_rotation(minHjul4.minX,minHjul4.minY,minHjul4.minZ,minHjul1.minX,minHjul1.minY,minHjul1.minZ,h14_cos,h14_sin,v14_cos,v14_sin);
+  float h23_cos, h23_sin, v23_cos, v23_sin;
+  find_rotation(minHjul3.minX,minHjul3.minY,minHjul3.minZ,minHjul2.minX,minHjul2.minY,minHjul2.minZ,h23_cos,h23_sin,v23_cos,v23_sin);
+  float hr12_cos, hr12_sin, t12_cos, t12_sin;
+  find_rotation(minHjul2.minX,minHjul2.minY,minHjul2.minZ,minHjul1.minX,minHjul1.minY,minHjul1.minZ,hr12_cos,hr12_sin,t12_cos,t12_sin);
+  float hr43_cos, hr43_sin, t43_cos, t43_sin;
+  find_rotation(minHjul3.minX,minHjul3.minY,minHjul3.minZ,minHjul4.minX,minHjul4.minY,minHjul4.minZ,hr43_cos,hr43_sin,t43_cos,t43_sin);
+  // Gem rotation
+  minH_cos=(h14_cos+h23_cos)/2.0;
+  minH_sin=(h14_sin+h23_sin)/2.0;
+  minH=atan2(minH_sin,minH_cos);
+  minH_cos=cos(minH); // Recompute to normalize
+  minH_sin=sin(minH); // Recompute to normalize
+  minV_cos=(v14_cos+v23_cos)/2.0;
+  minV_sin=(v14_sin+v23_sin)/2.0;
+  minV=atan2(minV_sin,minV_cos);
+  minV_cos=cos(minV); // Recompute to normalize
+  minV_sin=sin(minV); // Recompute to normalize
+  minT_cos=(t12_cos+t43_cos)/2.0;
+  minT_sin=(t12_sin+t43_sin)/2.0;
+  minT=atan2(minT_sin,minT_cos);
+  minT_cos=cos(minT); // Recompute to normalize
+  minT_sin=sin(minT); // Recompute to normalize
+
+  // Sæt hjulene på bilen igen
+  if (!minSmadret)
+  {
+    // Placer hjul1
+    float h1x,h1y,h1z;
+    roter3d(2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h1x,h1y,h1z);
+    minHjul1.minXhastighed+=(minX+h1x-minHjul1.minX);
+    minHjul1.minYhastighed+=(minY+h1y-minHjul1.minY);
+    minHjul1.minZhastighed+=(minZ+h1z-minHjul1.minZ);
+    minHjul1.minX=minX+h1x;
+    minHjul1.minY=minY+h1y;
+    minHjul1.minZ=minZ+h1z;
+    // Placer hjul 2
+    float h2x;
+    float h2y;
+    float h2z;
+    roter3d(2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h2x,h2y,h2z);
+    minHjul2.minXhastighed+=(minX+h2x-minHjul2.minX);
+    minHjul2.minYhastighed+=(minY+h2y-minHjul2.minY);
+    minHjul2.minZhastighed+=(minZ+h2z-minHjul2.minZ);
+    minHjul2.minX=minX+h2x;
+    minHjul2.minY=minY+h2y;
+    minHjul2.minZ=minZ+h2z;
+    // Placer hjul 3
+    float h3x;
+    float h3y;
+    float h3z;
+    roter3d(-2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h3x,h3y,h3z);
+    minHjul3.minXhastighed+=(minX+h3x-minHjul3.minX);
+    minHjul3.minYhastighed+=(minY+h3y-minHjul3.minY);
+    minHjul3.minZhastighed+=(minZ+h3z-minHjul3.minZ);
+    minHjul3.minX=minX+h3x;
+    minHjul3.minY=minY+h3y;
+    minHjul3.minZ=minZ+h3z;
+    // Placer hjul 4
+    float h4x;
+    float h4y;
+    float h4z;
+    roter3d(-2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h4x,h4y,h4z);
+    minHjul4.minXhastighed+=(minX+h4x-minHjul4.minX);
+    minHjul4.minYhastighed+=(minY+h4y-minHjul4.minY);
+    minHjul4.minZhastighed+=(minZ+h4z-minHjul4.minZ);
+    minHjul4.minX=minX+h4x;
+    minHjul4.minY=minY+h4y;
+    minHjul4.minZ=minZ+h4z;
+  }
+} // }}}
+bool Bil::Forsvind() // {{{
+{ return minZ<=-1.0;
+} // }}}
+string Bil::TilTekst() // {{{
+{ stringstream resultat;
+  resultat << minHjul1.TilTekst() << " "
+           << minHjul2.TilTekst() << " "
+           << minHjul3.TilTekst() << " "
+           << minHjul4.TilTekst() << " "
+           << minSmadret << " "
+           << minSmadretTid;
+  return resultat.str();
+} // }}}
+void Bil::Frem(size_t ticks) // {{{
+{ if (minHjul1.minKontakt)
+  { float hastighed=dist(0.0,0.0,0.0,minHjul1.minXhastighed,minHjul1.minYhastighed,minHjul1.minZhastighed);
+    minHjul1.minXhastighed+=(1.0+hastighed*gear_faktor)*minHjul1.minH_cos*minV_cos*frem_faktor*ticks;
+    minHjul1.minYhastighed+=(1.0+hastighed*gear_faktor)*minHjul1.minH_sin*minV_cos*frem_faktor*ticks;
+    minHjul1.minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+    minHjul1.Spin(0.01);
+  }
+  else
+    minHjul1.Spin(0.02);
+  if (minHjul2.minKontakt)
+  { float hastighed=dist(0.0,0.0,0.0,minHjul2.minXhastighed,minHjul2.minYhastighed,minHjul2.minZhastighed);
+    minHjul2.minXhastighed+=(1.0+hastighed*gear_faktor)*minHjul2.minH_cos*minV_cos*frem_faktor*ticks;
+    minHjul2.minYhastighed+=(1.0+hastighed*gear_faktor)*minHjul2.minH_sin*minV_cos*frem_faktor*ticks;
+    minHjul2.minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+    minHjul2.Spin(0.01);
+  }
+  else
+    minHjul2.Spin(0.02);
+  if (minHjul3.minKontakt)
+  { float hastighed=dist(0.0,0.0,0.0,minHjul3.minXhastighed,minHjul3.minYhastighed,minHjul3.minZhastighed);
+    minHjul3.minXhastighed+=(1.0+hastighed*gear_faktor)*minHjul3.minH_cos*minV_cos*frem_faktor*ticks;
+    minHjul3.minYhastighed+=(1.0+hastighed*gear_faktor)*minHjul3.minH_sin*minV_cos*frem_faktor*ticks;
+    minHjul3.minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+    minHjul3.Spin(0.01);
+  }
+  else
+    minHjul3.Spin(0.02);
+  if (minHjul4.minKontakt)
+  { float hastighed=dist(0.0,0.0,0.0,minHjul4.minXhastighed,minHjul4.minYhastighed,minHjul4.minZhastighed);
+    minHjul4.minXhastighed+=(1.0+hastighed*gear_faktor)*minHjul4.minH_cos*minV_cos*frem_faktor*ticks;
+    minHjul4.minYhastighed+=(1.0+hastighed*gear_faktor)*minHjul4.minH_sin*minV_cos*frem_faktor*ticks;
+    minHjul4.minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+    minHjul4.Spin(0.01);
+  }
+  else
+    minHjul4.Spin(0.02);
+} // }}}
+void Bil::Tilbage(size_t ticks) // {{{
+{ if (minHjul1.minKontakt)
+    { minHjul1.minXhastighed-=minHjul1.minH_cos*minV_cos*0.05*ticks;
+      minHjul1.minYhastighed-=minHjul1.minH_sin*minV_cos*0.05*ticks;
+      minHjul1.minZhastighed-=minV_sin*0.05*ticks;
+      minHjul1.Spin(-0.005);
+    }
+    else
+      minHjul1.Spin(-0.01);
+    if (minHjul2.minKontakt)
+    { minHjul2.minXhastighed-=minHjul2.minH_cos*minV_cos*0.05*ticks;
+      minHjul2.minYhastighed-=minHjul2.minH_sin*minV_cos*0.05*ticks;
+      minHjul2.minZhastighed-=minV_sin*0.05*ticks;
+      minHjul2.Spin(-0.005);
+    }
+    else
+      minHjul2.Spin(-0.01);
+    if (minHjul3.minKontakt)
+    { minHjul3.minXhastighed-=minHjul3.minH_cos*minV_cos*0.05*ticks;
+      minHjul3.minYhastighed-=minHjul3.minH_sin*minV_cos*0.05*ticks;
+      minHjul3.minZhastighed-=minV_sin*0.05*ticks;
+      minHjul3.Spin(-0.005);
+    }
+    else
+      minHjul3.Spin(-0.01);
+    if (minHjul4.minKontakt)
+    { minHjul4.minXhastighed-=minHjul4.minH_cos*minV_cos*0.05*ticks;
+      minHjul4.minYhastighed-=minHjul4.minH_sin*minV_cos*0.05*ticks;
+      minHjul4.minZhastighed-=minV_sin*0.05*ticks;
+      minHjul4.Spin(-0.005);
+    }
+    else
+      minHjul4.Spin(-0.01);
+} // }}}
+void Bil::SetRetning(bool venstre, bool hoejre) // {{{
+{ minHjul1.SetRetning(minH+(venstre?0.15:0.0)-(hoejre?0.15:0.0),minT);
+  minHjul2.SetRetning(minH+(venstre?0.15:0.0)-(hoejre?0.15:0.0),minT);
+  minHjul3.SetRetning(minH,minT);
+  minHjul4.SetRetning(minH,minT);
+} // }}}
+
+// Implementer fly som en ting
+Fly::Fly() // {{{
+: Ting("fly",0.0,0.0,0.0,0.0,0.0,0.0,0.0)
+//, minPropel(2, 0, 0, 0, 0, 0, 0)
+{ minSmadret=false;
+  minZhastighed=0.0;
+  minKontakt=false;
+} // }}}
+Fly::Fly(stringstream &ss) // {{{
+: Ting()
+//, minPropel(ss)
+{ ss>>minSmadret;
+  ss>>minSmadretTid;
+  ss>>minZhastighed;
+  ss>>minKontakt;
+} // }}}
+Fly::Fly(float x, float y, float z, float h, float v, float t, float fart) // {{{
+: Ting("fly",x,y,z,h,v,t,fart)
+//, minPropel(x+2.0,y,z,h,v,t,fart)
+{ minSmadret=false;
+  minZhastighed=0.0;
+  minKontakt=false;
+} // }}}
+Fly::~Fly() // {{{
+{
+} // }}}
+string Fly::Type() // {{{
+{ return "fly";
+} // }}}
+void Fly::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
+{ // Tyngdekraft
+  float t=min(0.0,-tyngdekraft+minFart*0.0013);
+  minZhastighed+=t;
+  minZ+=minZhastighed*ticks*0.001;
+
+  // Drej
+  minH-=minT*0.00005*minFart*ticks;
+  minH_cos=cos(minH);
+  minH_sin=sin(minH);
+
+  // Find punkter på flyet
+  float fremX,fremY,fremZ;
+  roter3d(1.0,0.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,fremX,fremY,fremZ);
+  float hjulX,hjulY,hjulZ;
+  roter3d(0.0,0.0,-0.5,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,hjulX,hjulY,hjulZ);
+  float venstreX,venstreY,venstreZ;
+  roter3d(0.0,1.5,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,venstreX,venstreY,venstreZ);
+  float hoejreX,hoejreY,hoejreZ;
+  roter3d(0.0,-1.5,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,hoejreX,hoejreY,hoejreZ);
+  // Bevæg fremad
+  minX+=fremX*minFart*ticks*0.001;
+  minY+=fremY*minFart*ticks*0.001;
+  minZ+=fremZ*minFart*ticks*0.001;
+
+  minFart*=friktion_fri;
+  minZhastighed*=friktion_fri;
+
+  // Håndter styrt
+  if (minSmadret)
+  { if (minSmadretTid>=5000)
+    { minSmadret=false;
+      minSmadretTid=0;
+      minX=tilstand.checkpoint_x;
+      minY=tilstand.checkpoint_y;
+      minZ=tilstand.checkpoint_z;
+      minH=0;
+      minV=0;
+      minT=0;
+      minH_cos=cos(minH);
+      minH_sin=sin(minH);
+      minV_cos=cos(minV);
+      minV_sin=sin(minV);
+      minT_cos=cos(minT);
+      minT_sin=sin(minT);
+    }
+    else
+      minSmadretTid+=ticks;
+  }
+  else
+  {
+    minKontakt=false;
+    // Bliver flyet ramt
+    for (int x=Omraader::Afsnit(int(minX)-1); x<=Omraader::Afsnit(int(minX)+1); ++x)
+    { for (int y=Omraader::Afsnit(int(minY)-1); y<=Omraader::Afsnit(int(minY)+1); ++y)
+      { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+1); ++z)
+        { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
+          for (size_t i=0; i<omraade.size(); ++i)
+          { const Trekant *t=omraade[i];
+            // Rammer hjul
+            float dh1=dist(t->minX1,t->minY1,t->minZ1,minX+hjulX,minY+hjulY,minZ+hjulZ);
+            if (dh1<=0.5) // Rammer hjul
+            { float retningX=minX+hjulX-t->minX1;
+              float retningY=minY+hjulY-t->minY1;
+              float retningZ=minZ+hjulZ-t->minZ1;
+              minX+=(0.5-dh1)*retningX; // Correct position
+              minY+=(0.5-dh1)*retningY; // Correct position
+              minZ+=(0.5-dh1)*retningZ; // Correct position
+              minKontakt=true;
+            }
+            float dh2=dist(t->minX2,t->minY2,t->minZ2,minX+hjulX,minY+hjulY,minZ+hjulZ);
+            if (dh2<=0.5) // Ikke ramme hårdt, og kun ramme nedenunder
+            { float retningX=minX+hjulX-t->minX2;
+              float retningY=minY+hjulY-t->minY2;
+              float retningZ=minZ+hjulZ-t->minZ2;
+              minX+=(0.5-dh2)*retningX; // Correct position
+              minY+=(0.5-dh2)*retningY; // Correct position
+              minZ+=(0.5-dh2)*retningZ; // Correct position
+              minKontakt=true;
+            }
+            float dh3=dist(t->minX3,t->minY3,t->minZ3,minX+hjulX,minY+hjulY,minZ+hjulZ);
+            if (dh3<=0.5) // Ikke ramme hårdt, og kun ramme nedenunder
+            { float retningX=minX+hjulX-t->minX3;
+              float retningY=minY+hjulY-t->minY3;
+              float retningZ=minZ+hjulZ-t->minZ3;
+              minX+=(0.5-dh3)*retningX; // Correct position
+              minY+=(0.5-dh3)*retningY; // Correct position
+              minZ+=(0.5-dh3)*retningZ; // Correct position
+              minKontakt=true;
+            }
+            // Rammer front
+            float df1=dist(t->minX1,t->minY1,t->minZ1,minX+fremX,minY+fremY,minZ+fremZ);
+            float df2=dist(t->minX2,t->minY2,t->minZ2,minX+fremX,minY+fremY,minZ+fremZ);
+            float df3=dist(t->minX3,t->minY3,t->minZ3,minX+fremX,minY+fremY,minZ+fremZ);
+            float dvv1=dist(t->minX1,t->minY1,t->minZ1,minX+venstreX,minY+venstreY,minZ+venstreZ);
+            float dvv2=dist(t->minX2,t->minY2,t->minZ2,minX+venstreX,minY+venstreY,minZ+venstreZ);
+            float dvv3=dist(t->minX3,t->minY3,t->minZ3,minX+venstreX,minY+venstreY,minZ+venstreZ);
+            float dhv1=dist(t->minX1,t->minY1,t->minZ1,minX+hoejreX,minY+hoejreY,minZ+hoejreZ);
+            float dhv2=dist(t->minX2,t->minY2,t->minZ2,minX+hoejreX,minY+hoejreY,minZ+hoejreZ);
+            float dhv3=dist(t->minX3,t->minY3,t->minZ3,minX+hoejreX,minY+hoejreY,minZ+hoejreZ);
+            if (df1<=0.5 || df2<=0.5 || df3<=0.5 || dvv1<=0.5 || dvv2<=0.5 || dvv3<=0.5 || dhv1<=0.5 || dhv2<=0.5 || dhv3<=0.5) // Rammer hjul
+            { // Rammer
+              if (!minSmadret)
+              { minSmadret=true;
+                minSmadretTid=0;
+                Mix_PlayChannel(2, LydeBibliotek["bang"], 0 );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} // }}}
+bool Fly::Forsvind() // {{{
+{ return minZ<=-1.0;
+} // }}}
+string Fly::TilTekst() // {{{
+{ stringstream resultat;
+  resultat << minSmadret << " "
+           << minSmadretTid;
+  return resultat.str();
+} // }}}
+void Fly::Frem(size_t ticks) // {{{
+{ minFart+=frem_faktor*ticks*gear_faktor;
+} // }}}
+void Fly::Tilbage(size_t ticks) // {{{
+{ minFart*=0.9;
+} // }}}
+void Fly::SetRetning(bool venstre, bool hoejre) // {{{
+{ //minH+=(venstre?0.001:0.0)-(hoejre?0.001:0.0);
+  //minH_cos=cos(minH);
+  //minH_sin=sin(minH);
+  //if (minFart<10.0 && minV>0.01-(M_PI/2.0))
+  //  minV-=0.01;
+  //if (minFart>10.0 && minV<(M_PI/2.0)-0.01)
+  //  minV+=0.01;
+  minV=min(M_PI/2.0,minFart/7.0-M_PI/2.0);
+  if (minKontakt && minV<0.0)
+    minV=0.0;
+  minV_cos=cos(minV);
+  minV_sin=sin(minV);
+  minT-=(venstre?0.0005:0.0)-(hoejre?0.0005:0.0);
+  if (minKontakt)
+    minT*=friktion;
+  else
+    minT*=friktion_fri; //0.9988;
+  minT_cos=cos(minT);
+  minT_sin=sin(minT);
+} // }}}
+
+// Læs en pixel fra tekstur
+Uint32 getpixel(SDL_Surface *surface, int x, int y) // {{{
+{
+  int bpp = surface->format->BytesPerPixel;
+  /* Here p is the address to the pixel we want to retrieve */
+  Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
+
+  switch (bpp)
+  {
+    case 1:
+      return *p;
+      break;
+
+    case 2:
+      return *(Uint16 *)p;
+      break;
+
+    case 3:
+      if (SDL_BYTEORDER == SDL_BIG_ENDIAN)
+        return p[0] << 16 | p[1] << 8 | p[2];
+      else
+        return p[0] | p[1] << 8 | p[2] << 16;
+      break;
+
+    case 4:
+      return *(Uint32 *)p;
+      break;
+
+    default:
+      return 0;       /* shouldn't happen, but avoids warnings */
+  }
 } // }}}
 
 // Tegn en horisontal linje på dest
@@ -861,10 +1495,67 @@ inline void tegn_hline(SDL_Surface *dest, vector<float> &zbuf, int y, int x1, fl
     for (size_t x=x1; x<x2; ++x)
     { if (posd>min_afstand && posd<zbuf[x+y*bredde])
       { //pixelRGBA(dest,x,y,r,g,b,255);
-        pixelRGBA(dest,x,y,fade_color(r,posd),fade_color(g,posd),fade_color(b,posd),255);
+        pixelRGBA(dest,x,y,fade_rcolor(r,posd),fade_gcolor(g,posd),fade_bcolor(b,posd),255);
         zbuf[x+y*bredde]=posd;
       }
       posd+=trind;
+    }
+  }
+} // }}}
+inline void tegn_hline_tekstur(SDL_Surface *dest, vector<float> &zbuf, int y, int x1, float d1, int x2,float d2, SDL_Surface *tekstur, float tx1, float ty1, float tx2, float ty2) // {{{
+{ //cout << "tegn_hline(" << y << "," << x1 << "," << d1 << "," << x2 << "," << d2 << "," << r << "," << g << "," << b <<")" << endl;
+
+  if (x2<x1)
+    return tegn_hline_tekstur(dest,zbuf,y,x2,d2,x1,d1,tekstur,tx2,ty2,tx1,ty1);
+
+  if (y<0)
+    return;
+  if (y>=int(hoejde))
+    return;
+  if (x2<0)
+    return;
+  if (x1>=int(bredde))
+    return;
+
+  if (x1<0)
+  { d1=d1-(d2-d1)*float(x1)/(float(x2)-float(x1));
+    tx1=tx1-(tx2-tx1)*float(x1)/(float(x2)-float(x1));
+    ty1=ty1-(ty2-ty1)*float(x1)/(float(x2)-float(x1));
+    x1=0;
+  }
+  if (x2>bredde)
+  { d2=d2+(d1-d2)*(float(x2)-float(bredde))/(float(x2)-float(x1));
+    tx2=tx2+(tx1-tx2)*(float(x2)-float(bredde))/(float(x2)-float(x1));
+    ty2=ty2+(ty1-ty2)*(float(x2)-float(bredde))/(float(x2)-float(x1));
+    x2=bredde;
+  }
+  if (d1<=min_afstand && d2<=min_afstand)
+    return;
+  if (d1>=maks_afstand && d2>=maks_afstand)
+    return;
+    
+  if (x2>x1)
+  { float trind=(d2-d1)/(x2-x1);
+    float posd=d1;
+    float trintx=(tx2-tx1)/(x2-x1);
+    float trinty=(ty2-ty1)/(x2-x1);
+    float tx=tx1;
+    float ty=ty1;
+    for (size_t x=x1; x<x2; ++x)
+    { if (posd>min_afstand && posd<zbuf[x+y*bredde])
+      { size_t txi=((((int)(tx*50.0))%tekstur->w)+tekstur->w)%tekstur->w;
+        size_t tyi=((((int)(ty*50.0))%tekstur->h)+tekstur->h)%tekstur->h;
+        //cout << "txi,tyi: " << txi << "," << tyi << endl;
+        Uint32 pixel = getpixel(tekstur, txi, tyi);
+        unsigned char r,g,b;
+        SDL_GetRGB(pixel, tekstur->format, &r, &g, &b);
+        pixelRGBA(dest,x,y,fade_rcolor(r,posd),fade_gcolor(g,posd),fade_bcolor(b,posd),255);
+        //pixelRGBA(dest,x,y,fade_rcolor(txi%256,posd),fade_gcolor(tyi%255,posd),fade_bcolor(0,posd),255);
+        zbuf[x+y*bredde]=posd;
+      }
+      posd+=trind;
+      tx+=trintx;
+      ty+=trinty;
     }
   }
 } // }}}
@@ -948,6 +1639,106 @@ inline void tegn_trekant2d(SDL_Surface *dest, vector<float> &zbuf, int x1, int y
     }
   }
 } // }}}
+inline void tegn_trekant2d_tekstur(SDL_Surface *dest, vector<float> &zbuf, int x1, int y1, float d1, int x2, int y2, float d2, int x3, int y3, float d3, SDL_Surface *tekstur, float tx1, float ty1, float tx2, float ty2, float tx3, float ty3) // {{{
+{ // Test om vi kan afvise at tegne
+  if (d1<=min_afstand || d2<=min_afstand || d3<=min_afstand)
+    return;
+
+  if (x1<0 && x2<0 && x3<0)
+    return;
+
+  if (x1>=bredde && x2>=bredde && x3>=bredde)
+    return;
+
+  if (y1<0 && y2<0 && y3<0)
+    return;
+
+  if (y1>=hoejde && y2>=hoejde && y3>=hoejde)
+    return;
+
+  // Sorter hjørner
+  if (y2<y1)
+    return tegn_trekant2d_tekstur(dest,zbuf,x2,y2,d2,x1,y1,d1,x3,y3,d3,tekstur,tx2,ty2,tx1,ty1,tx3,ty3);
+
+  if (y3<y1)
+    return tegn_trekant2d_tekstur(dest,zbuf,x3,y3,d3,x2,y2,d2,x1,y1,d1,tekstur,tx3,ty3,tx2,ty2,tx1,ty1);
+
+  if (y3<y2)
+    return tegn_trekant2d_tekstur(dest,zbuf,x1,y1,d1,x3,y3,d3,x2,y2,d2,tekstur,tx1,ty1,tx3,ty3,tx2,ty2);
+
+  // Debug - marker hjørner
+  //if (x1>=0 && x1<bredde && y1>=0 && y1<hoejde && d1<=zbuf[x1+y1*bredde])
+  //{ pixelRGBA(dest,x1,y1,255,255,255,255);
+  //  zbuf[x1+y1*bredde]=d1;
+  //}
+  //if (x2>=0 && x2<bredde && y2>=0 && y2<hoejde && d2<=zbuf[x2+y2*bredde])
+  //{ pixelRGBA(dest,x2,y2,255,255,255,255);
+  //  zbuf[x2+y2*bredde]=d2;
+  //}
+  //if (x3>=0 && x3<bredde && y3>=0 && y3<hoejde && d3<=zbuf[x3+y3*bredde])
+  //{ pixelRGBA(dest,x3,y3,255,255,255,255);
+  //  zbuf[x3+y3*bredde]=d3;
+  //}
+  
+  //Tegn hver hlinje
+  float posx2=x1;
+  float posx3=x1;
+  float posd2=d1;
+  float posd3=d1;
+  float postx2=tx1;
+  float posty2=ty1;
+  float postx3=tx1;
+  float posty3=ty1;
+  int posy=y1;
+  if (y2>y1) // Tegn ned til y2
+  { float trinx2=(float(x2)-float(x1))/(float(y2)-float(y1));
+    float trind2=(d2-d1)/(float(y2)-float(y1));
+    float trinx3=(float(x3)-float(x1))/(float(y3)-float(y1));
+    float trind3=(d3-d1)/(float(y3)-float(y1));
+    float trintx2=(tx2-tx1)/(float(y2)-float(y1));
+    float trinty2=(ty2-ty1)/(float(y2)-float(y1));
+    float trintx3=(tx3-tx1)/(float(y3)-float(y1));
+    float trinty3=(ty3-ty1)/(float(y3)-float(y1));
+    for (int y=0; y<y2-y1; ++y)
+    { tegn_hline_tekstur(dest,zbuf,posy,int(posx2),posd2,int(posx3),posd3,tekstur,postx2,posty2,postx3,posty3);
+      posx2+=trinx2;
+      posd2+=trind2;
+      posx3+=trinx3;
+      posd3+=trind3;
+      postx2+=trintx2;
+      posty2+=trinty2;
+      postx3+=trintx3;
+      posty3+=trinty3;
+      posy+=1;
+    }
+  }
+  posx2=x2;
+  posd2=d2;
+  postx2=tx2;
+  posty2=ty2;
+  if (y3>y2) // Tegn ned til y3
+  { float trinx2=(float(x3)-float(x2))/(float(y3)-float(y2));
+    float trind2=(d3-d2)/(float(y3)-float(y2));
+    float trinx3=(float(x3)-float(x1))/(float(y3)-float(y1));
+    float trind3=(d3-d1)/(float(y3)-float(y1));
+    float trintx2=(tx3-tx2)/(float(y3)-float(y2));
+    float trinty2=(ty3-ty2)/(float(y3)-float(y2));
+    float trintx3=(tx3-tx1)/(float(y3)-float(y1));
+    float trinty3=(ty3-ty1)/(float(y3)-float(y1));
+    for (int y=0; y<y3-y2; ++y)
+    { tegn_hline_tekstur(dest,zbuf,posy,int(posx2),posd2,int(posx3),posd3,tekstur,postx2,posty2,postx3,posty3);
+      posx2+=trinx2;
+      posd2+=trind2;
+      posx3+=trinx3;
+      posd3+=trind3;
+      postx2+=trintx2;
+      posty2+=trinty2;
+      postx3+=trintx3;
+      posty3+=trinty3;
+      posy+=1;
+    }
+  }
+} // }}}
 
 void haandter_rammer(int r, int g, int b, Tilstand &t) // {{{
 { if (r>2*g && r>2*b)
@@ -963,14 +1754,14 @@ void haandter_rammer(int r, int g, int b, Tilstand &t) // {{{
 // Tegn en trekant ud fra 3D koordinater
 inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, const Trekant &trekant) // {{{
 { // Forskyd koordinater
-  float tx1=trekant.minX1-t.kamera_x+3.0*t.kamera_h_cos;
-  float ty1=trekant.minY1-t.kamera_y+3.0*t.kamera_h_sin;
+  float tx1=trekant.minX1-t.kamera_x;
+  float ty1=trekant.minY1-t.kamera_y;
   float tz1=trekant.minZ1-t.kamera_z;
-  float tx2=trekant.minX2-t.kamera_x+3.0*t.kamera_h_cos;
-  float ty2=trekant.minY2-t.kamera_y+3.0*t.kamera_h_sin;
+  float tx2=trekant.minX2-t.kamera_x;
+  float ty2=trekant.minY2-t.kamera_y;
   float tz2=trekant.minZ2-t.kamera_z;
-  float tx3=trekant.minX3-t.kamera_x+3.0*t.kamera_h_cos;
-  float ty3=trekant.minY3-t.kamera_y+3.0*t.kamera_h_sin;
+  float tx3=trekant.minX3-t.kamera_x;
+  float ty3=trekant.minY3-t.kamera_y;
   float tz3=trekant.minZ3-t.kamera_z;
   // Roter om z-aksen
   float rx1=tx1*t.kamera_h_sin-ty1*t.kamera_h_cos;
@@ -1075,7 +1866,10 @@ inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, c
   int y2=int(0.5*hoejde-(fz2/fy2)*bredde);
   int x3=int(0.5*bredde+(fx3/fy3)*bredde);
   int y3=int(0.5*hoejde-(fz3/fy3)*bredde);
-  tegn_trekant2d(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,trekant.minR,trekant.minG,trekant.minB);
+  if (trekant.minG>trekant.minR && trekant.minG>trekant.minB)
+    tegn_trekant2d_tekstur(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,BilledeBibliotek["tekstur_græs"],trekant.minX1+trekant.minZ1,trekant.minY1-trekant.minZ1,trekant.minX2+trekant.minZ2,trekant.minY2-trekant.minZ2,trekant.minX3+trekant.minZ3,trekant.minY3-trekant.minZ3);
+  else
+    tegn_trekant2d(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,trekant.minR,trekant.minG,trekant.minB);
 } // }}}
 
 // Tegn en ting
@@ -1083,168 +1877,56 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
 { // For hver trekant
   for (size_t i=0; i<FigurBibliotek[ting.minFigur].size(); ++i)
   { Trekant t=FigurBibliotek[ting.minFigur][i];
-    // Roter om x-aksen
+    // Roter
     Trekant t2=t;
-    t2.minX1=t.minX1;
-    t2.minY1=t.minY1*ting.minV_cos+t.minZ1*ting.minV_sin;
-    t2.minZ1=t.minZ1*ting.minV_cos-t.minY1*ting.minV_sin;
-    t2.minX2=t.minX2;
-    t2.minY2=t.minY2*ting.minV_cos+t.minZ2*ting.minV_sin;
-    t2.minZ2=t.minZ2*ting.minV_cos-t.minY2*ting.minV_sin;
-    t2.minX3=t.minX3;
-    t2.minY3=t.minY3*ting.minV_cos+t.minZ3*ting.minV_sin;
-    t2.minZ3=t.minZ3*ting.minV_cos-t.minY3*ting.minV_sin;
-    // Roter om z-aksen
-    Trekant t3=t2;
-    t3.minX1=-t2.minX1*ting.minH_sin-t2.minY1*ting.minH_cos;
-    t3.minY1=-t2.minY1*ting.minH_sin+t2.minX1*ting.minH_cos;
-    t3.minZ1=t2.minZ1;
-    t3.minX2=-t2.minX2*ting.minH_sin-t2.minY2*ting.minH_cos;
-    t3.minY2=-t2.minY2*ting.minH_sin+t2.minX2*ting.minH_cos;
-    t3.minZ2=t2.minZ2;
-    t3.minX3=-t2.minX3*ting.minH_sin-t2.minY3*ting.minH_cos;
-    t3.minY3=-t2.minY3*ting.minH_sin+t2.minX3*ting.minH_cos;
-    t3.minZ3=t2.minZ3;
+    retor3d(t.minX1,t.minY1,t.minZ1,ting.minH_cos,ting.minH_sin,ting.minV_cos,ting.minV_sin,ting.minT_cos,ting.minT_sin,t2.minX1,t2.minY1,t2.minZ1);
+    retor3d(t.minX2,t.minY2,t.minZ2,ting.minH_cos,ting.minH_sin,ting.minV_cos,ting.minV_sin,ting.minT_cos,ting.minT_sin,t2.minX2,t2.minY2,t2.minZ2);
+    retor3d(t.minX3,t.minY3,t.minZ3,ting.minH_cos,ting.minH_sin,ting.minV_cos,ting.minV_sin,ting.minT_cos,ting.minT_sin,t2.minX3,t2.minY3,t2.minZ3);
     // Flyt
-    Trekant t4=t3;
-    t4.minX1=t3.minX1+ting.minX;
-    t4.minY1=t3.minY1+ting.minY;
-    t4.minZ1=t3.minZ1+ting.minZ;
-    t4.minX2=t3.minX2+ting.minX;
-    t4.minY2=t3.minY2+ting.minY;
-    t4.minZ2=t3.minZ2+ting.minZ;
-    t4.minX3=t3.minX3+ting.minX;
-    t4.minY3=t3.minY3+ting.minY;
-    t4.minZ3=t3.minZ3+ting.minZ;
-    tegn_trekant3d(dest,zbuf,tilstand,t4);
+    Trekant t3=t2;
+    t3.minX1=t2.minX1+ting.minX;
+    t3.minY1=t2.minY1+ting.minY;
+    t3.minZ1=t2.minZ1+ting.minZ;
+    t3.minX2=t2.minX2+ting.minX;
+    t3.minY2=t2.minY2+ting.minY;
+    t3.minZ2=t2.minZ2+ting.minZ;
+    t3.minX3=t2.minX3+ting.minX;
+    t3.minY3=t2.minY3+ting.minY;
+    t3.minZ3=t2.minZ3+ting.minZ;
+    tegn_trekant3d(dest,zbuf,tilstand,t3);
   }
 } // }}}
 
-inline void find_rotation(float x1, float y1, float z1, float x2, float y2, float z2, float &h_cos, float &h_sin, float &v_cos, float &v_sin) // {{{
-{ float dh=dist(x1,y1,0.0,x2,y2,0.0f);
-  if (dh>0)
-  { h_cos=(x1-x2)/dh;
-    h_sin=(y1-y2)/dh;
-    //h=atan2(h_sin,h_cos);
-  }
-  float dv=dist(0.0,0.0,z1,0.0,dh,z2);
-  if (dv>0.0f)
-  { v_cos=dh/dv;
-    v_sin=(z1-z2)/dv;
-    //v=atan2(v_sin,v_cos);
-  }
-} // }}}
 // Bevæg spilleren ud fra tilstanden om
 // hvilke taster der er trykket, samt
 // spillerens retning
 inline void bevaeg(Tilstand &t, size_t ticks=10) // {{{
-{ t.hjul1.SetRetning(t.mig_h+(t.tast_venstre?0.5:0.0)-(t.tast_hoejre?0.5:0.0));
-  t.hjul2.SetRetning(t.mig_h+(t.tast_venstre?0.5:0.0)-(t.tast_hoejre?0.5:0.0));
-  t.hjul3.SetRetning(t.mig_h);
-  t.hjul4.SetRetning(t.mig_h);
+{ t.mig.SetRetning(t.tast_venstre,t.tast_hoejre);
   if (t.tast_frem)
-  { // FIXME: Test om hvert hjul rører noget
-    t.hjul1.minXhastighed+=t.hjul1.minH_cos*t.mig_v_cos*0.1*ticks;
-    t.hjul1.minYhastighed+=t.hjul1.minH_sin*t.mig_v_cos*0.1*ticks;
-    t.hjul1.minZhastighed+=t.mig_v_sin*0.1*ticks;
-    t.hjul2.minXhastighed+=t.hjul2.minH_cos*t.mig_v_cos*0.1*ticks;
-    t.hjul2.minYhastighed+=t.hjul2.minH_sin*t.mig_v_cos*0.1*ticks;
-    t.hjul2.minZhastighed+=t.mig_v_sin*0.1*ticks;
-    t.hjul3.minXhastighed+=t.hjul3.minH_cos*t.mig_v_cos*0.1*ticks;
-    t.hjul3.minYhastighed+=t.hjul3.minH_sin*t.mig_v_cos*0.1*ticks;
-    t.hjul3.minZhastighed+=t.mig_v_sin*0.1*ticks;
-    t.hjul4.minXhastighed+=t.hjul4.minH_cos*t.mig_v_cos*0.1*ticks;
-    t.hjul4.minYhastighed+=t.hjul4.minH_sin*t.mig_v_cos*0.1*ticks;
-    t.hjul4.minZhastighed+=t.mig_v_sin*0.1*ticks;
-  }
+    t.mig.Frem(ticks);
   if (t.tast_bak)
-  { // FIXME: Test om hvert hjul rører noget
-    t.hjul1.minXhastighed-=t.hjul1.minH_cos*t.mig_v_cos*0.05*ticks;
-    t.hjul1.minYhastighed-=t.hjul1.minH_sin*t.mig_v_cos*0.05*ticks;
-    t.hjul1.minZhastighed-=t.mig_v_sin*0.05*ticks;
-    t.hjul2.minXhastighed-=t.hjul2.minH_cos*t.mig_v_cos*0.05*ticks;
-    t.hjul2.minYhastighed-=t.hjul2.minH_sin*t.mig_v_cos*0.05*ticks;
-    t.hjul2.minZhastighed-=t.mig_v_sin*0.05*ticks;
-    t.hjul3.minXhastighed-=t.hjul3.minH_cos*t.mig_v_cos*0.05*ticks;
-    t.hjul3.minYhastighed-=t.hjul3.minH_sin*t.mig_v_cos*0.05*ticks;
-    t.hjul3.minZhastighed-=t.mig_v_sin*0.05*ticks;
-    t.hjul4.minXhastighed-=t.hjul4.minH_cos*t.mig_v_cos*0.05*ticks;
-    t.hjul4.minYhastighed-=t.hjul4.minH_sin*t.mig_v_cos*0.05*ticks;
-    t.hjul4.minZhastighed-=t.mig_v_sin*0.05*ticks;
-  }
+    t.mig.Tilbage(ticks);
 
-  for (size_t i=0; i<t.ting.size(); ++i)
-  { t.ting[i]->Bevaeg(ticks,t);
-    if (t.ting[i]->Forsvind())
-    { delete t.ting[i];
-      t.ting.erase(t.ting.begin()+(i--));
+  for (size_t i=0; i<ticks; ++i)
+  {
+    // Flyt mig
+    t.mig.Bevaeg(1,t);
+    for (size_t i=0; i<t.ting.size(); ++i)
+    { t.ting[i]->Bevaeg(1,t);
+      if (t.ting[i]->Forsvind())
+      { delete t.ting[i];
+        t.ting.erase(t.ting.begin()+(i--));
+      }
     }
   }
-
-  // Flyt bil
-  // Flyt hjulene
-  t.hjul1.Bevaeg(ticks,t);
-  t.hjul2.Bevaeg(ticks,t);
-  t.hjul3.Bevaeg(ticks,t);
-  t.hjul4.Bevaeg(ticks,t);
-  // Flyt bilen imellem hjulene
-  t.mig_x=(t.hjul1.minX+t.hjul2.minX+t.hjul3.minX+t.hjul4.minX)/4.0;
-  t.mig_y=(t.hjul1.minY+t.hjul2.minY+t.hjul3.minY+t.hjul4.minY)/4.0;
-  t.mig_z=(t.hjul1.minZ+t.hjul2.minZ+t.hjul3.minZ+t.hjul4.minZ)/4.0;
-  // Roter bilen bedst nuligt
-  float h14_cos, h14_sin, v14_cos,v14_sin;
-  find_rotation(t.hjul1.minX,t.hjul1.minY,t.hjul1.minZ,t.hjul4.minX,t.hjul4.minY,t.hjul4.minZ,h14_cos,h14_sin,v14_cos,v14_sin);
-  float h23_cos, h23_sin, v23_cos, v23_sin;
-  find_rotation(t.hjul2.minX,t.hjul2.minY,t.hjul2.minZ,t.hjul3.minX,t.hjul3.minY,t.hjul3.minZ,h23_cos,h23_sin,v23_cos,v23_sin);
-  float hr12_cos, hr12_sin, t12_cos, t12_sin;
-  find_rotation(t.hjul1.minX,t.hjul1.minY,t.hjul1.minZ,t.hjul2.minX,t.hjul2.minY,t.hjul2.minZ,hr12_cos,hr12_sin,t12_cos,t12_sin);
-  float hr43_cos, hr43_sin, t43_cos, t43_sin;
-  find_rotation(t.hjul4.minX,t.hjul4.minY,t.hjul4.minZ,t.hjul3.minX,t.hjul3.minY,t.hjul3.minZ,hr43_cos,hr43_sin,t43_cos,t43_sin);
-  //float h12_cos=hr12_sin;
-  //float h12_sin=-hr12_cos;
-  //float h43_cos=hr43_sin;
-  //float h43_sin=-hr43_cos;
-  // Gem rotation
-  t.mig_h_cos=(h14_cos+h23_cos)/2.0;
-  t.mig_h_sin=(h14_sin+h23_sin)/2.0;
-  t.mig_h=atan2(t.mig_h_sin,t.mig_h_cos);
-  t.mig_h_cos=cos(t.mig_h); // Recompute to normalize
-  t.mig_h_sin=sin(t.mig_h); // Recompute to normalize
-  t.mig_v_cos=(v14_cos+v23_cos)/2.0;
-  t.mig_v_sin=(v14_sin+v23_sin)/2.0;
-  t.mig_v=atan2(t.mig_v_sin,t.mig_v_cos);
-  t.mig_v_cos=cos(t.mig_v); // Recompute to normalize
-  t.mig_v_sin=sin(t.mig_v); // Recompute to normalize
-  //t.mig_t_cos=(t12_cos+t43_cos)/2.0;
-  //t.mig_t_sin=(t12_sin+t43_sin)/2.0;
-  //t.mig_t=atan2(t.mig_t_sin,t.mig_t_cos);
-  //t.mig_t_cos=cos(t.mig_t); // Recompute to normalize
-  //t.mig_t_sin=sin(t.mig_t); // Recompute to normalize
-  // Sæt hjulene på bilen igen
-  // FIXME: tegn på papir, så vi kan finde formlen for de korrekte koordinater
-  t.hjul1.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2-t.mig_h_sin/**t.mig_t_cos*/);
-  t.hjul1.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2+t.mig_h_cos/**t.mig_t_cos*/);
-  t.hjul1.minZ=t.mig_z+t.mig_v_sin*2/*+t.mig_t_sin*/;
-  t.hjul2.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*2+t.mig_h_sin/**t.mig_t_cos*/);
-  t.hjul2.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*2-t.mig_h_cos/**t.mig_t_cos*/);
-  t.hjul2.minZ=t.mig_z+t.mig_v_sin*2/*+t.mig_t_sin*/;
-  t.hjul3.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2+t.mig_h_sin/**t.mig_t_cos*/);
-  t.hjul3.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2-t.mig_h_cos/**t.mig_t_cos*/);
-  t.hjul3.minZ=t.mig_z-t.mig_v_sin*2/*+t.mig_t_cos*/;
-  t.hjul4.minX=t.mig_x+(t.mig_h_cos*t.mig_v_cos*-2-t.mig_h_sin/**t.mig_t_cos*/);
-  t.hjul4.minY=t.mig_y+(t.mig_h_sin*t.mig_v_cos*-2+t.mig_h_cos/**t.mig_t_cos*/);
-  t.hjul4.minZ=t.mig_z-t.mig_v_sin*2/*+t.mig_t_sin*/;
   // Flyt kamera
-  float dest_x=t.mig_x-t.mig_h_cos*10;
-  float dest_y=t.mig_y-t.mig_h_sin*10;
-  float dest_z=t.mig_z+2;
+  float dest_x=t.mig.minX-t.mig.minH_cos*10;
+  float dest_y=t.mig.minY-t.mig.minH_sin*10;
+  float dest_z=t.mig.minZ+2;
   t.kamera_x=t.kamera_x+(dest_x-t.kamera_x)*0.005*ticks;
   t.kamera_y=t.kamera_y+(dest_y-t.kamera_y)*0.005*ticks;
   t.kamera_z=t.kamera_z+(dest_z-t.kamera_z)*0.005*ticks;
-  t.kamera_h_cos=((t.mig_x-t.kamera_x)/sqrt((t.mig_x-t.kamera_x)*(t.mig_x-t.kamera_x)+(t.mig_y-t.kamera_y)*(t.mig_y-t.kamera_y)));
-  t.kamera_h_sin=((t.mig_y-t.kamera_y)/sqrt((t.mig_x-t.kamera_x)*(t.mig_x-t.kamera_x)+(t.mig_y-t.kamera_y)*(t.mig_y-t.kamera_y)));
-  t.kamera_v_cos=1.0;
-  t.kamera_v_sin=0.0;
+  find_rotation(t.kamera_x,t.kamera_y,t.kamera_z,t.mig.minX,t.mig.minY,t.mig.minZ,t.kamera_h_cos,t.kamera_h_sin,t.kamera_v_cos,t.kamera_v_sin);
 } // }}}
 
 // Håndter hændelser som tastetryk og
@@ -1277,6 +1959,7 @@ inline void haandter_haendelse(const SDL_Event &e, Tilstand &t) // {{{
         case 32: // MELLEMRUM
           //cout << "Key Space" << endl;
           t.tast_mellemrum=true;
+          t.mig.minSmadret=!t.mig.minSmadret;
           break;
         case 27: // ESCAPE
           t.quit=true;
@@ -1363,6 +2046,44 @@ inline void haandter_haendelse(const SDL_Event &e, Tilstand &t) // {{{
       break;
   }
 } // }}}
+inline void menu_haendelse(const SDL_Event &e, int &pos, int &select, int &back) // {{{
+{ switch (e.type)
+  { case SDL_KEYDOWN:
+      switch (e.key.keysym.sym)
+      { case 'a': // LEFT
+        case 276: // LEFT
+          break;
+        case 'd': // RIGHT
+        case 275: // RIGHT
+          break;
+        case 's': // DOWN
+        case 274: // DOWN
+          ++pos;
+          break;
+        case 'w': // UP
+        case 273: // UP
+          --pos;
+          break;
+        case 32: // MELLEMRUM
+          select=1;
+          break;
+        case 27: // ESCAPE
+          back=1;
+          break;
+        default:
+          //cout << "Key Down: " << event.key.keysym.sym << endl;
+          break;
+      }
+      break;
+    case SDL_QUIT:
+      //cout << "Window closed!" << endl;
+      back=1;
+      break;
+    default:
+      cerr << "Received unknown event: " << e.type << endl;
+      break;
+  }
+} // }}}
 
 int max(int x, int y) // {{{
 { if (x<=y)
@@ -1386,40 +2107,65 @@ void *spil(void *t) // {{{
   for (size_t i=0; i<sbuf.size(); ++i)
     sbuf[i]=rand();
 
+  // Menu
+  int pos=0;
+  int enter=0;
+  int tilbage=0;
+  while (pos!=2 || enter==0)
+  { SDL_Event event;
+    enter=0;
+    tilbage=0;
+    while (SDL_PollEvent(&event))
+    { menu_haendelse(event,pos,enter,tilbage);
+    }
+    SDL_FillRect(primary,NULL,SDL_MapRGB(primary->format,0,0,0));
+    SDL_Rect box;
+    box.x=10;
+    box.y=10;
+    box.w=100;
+    box.h=100;
+    SDL_FillRect(primary,&box,SDL_MapRGB(primary->format,100,100,50));
+    box.x=20;
+    box.y=20+pos*30;
+    box.w=80;
+    box.h=20;
+    SDL_FillRect(primary,&box,SDL_MapRGB(primary->format,20,100,20));
+    stringRGBA(primary,25,25,"Vælg bane",0,0,255,255);
+    stringRGBA(primary,25,55,"Vælg køretøj",0,0,255,255);
+    stringRGBA(primary,25,85,"Start",0,0,255,255);
+
+    SDL_Flip(primary);
+  }
 
   // Kør spil
   size_t ticks=SDL_GetTicks();
   size_t frameTicks=1;
 
-  // Sæt hjulene på bilen
-  tilstand.hjul1.minX=tilstand.mig_x+(tilstand.mig_h_cos*2-tilstand.mig_h_sin)*tilstand.mig_v_cos;
-  tilstand.hjul1.minY=tilstand.mig_y+(tilstand.mig_h_sin*2+tilstand.mig_h_cos)*tilstand.mig_v_cos,
-  tilstand.hjul1.minZ=tilstand.mig_z-tilstand.mig_v_sin;
-  tilstand.hjul2.minX=tilstand.mig_x+(tilstand.mig_h_cos*2+tilstand.mig_h_sin)*tilstand.mig_v_cos;
-  tilstand.hjul2.minY=tilstand.mig_y+(tilstand.mig_h_sin*2-tilstand.mig_h_cos)*tilstand.mig_v_cos,
-  tilstand.hjul2.minZ=tilstand.mig_z-tilstand.mig_v_sin;
-  tilstand.hjul3.minX=tilstand.mig_x+(tilstand.mig_h_cos*-1.8+tilstand.mig_h_sin)*tilstand.mig_v_cos;
-  tilstand.hjul3.minY=tilstand.mig_y+(tilstand.mig_h_sin*-1.8-tilstand.mig_h_cos)*tilstand.mig_v_cos,
-  tilstand.hjul3.minZ=tilstand.mig_z+tilstand.mig_v_sin;
-  tilstand.hjul4.minX=tilstand.mig_x+(tilstand.mig_h_cos*-1.8-tilstand.mig_h_sin)*tilstand.mig_v_cos;
-  tilstand.hjul4.minY=tilstand.mig_y+(tilstand.mig_h_sin*-1.8+tilstand.mig_h_cos)*tilstand.mig_v_cos,
-  tilstand.hjul4.minZ=tilstand.mig_z+tilstand.mig_v_sin;
-
-
   while (!tilstand.quit)
-  { // Farv skærmen sort
-    SDL_FillRect(primary,NULL,SDL_MapRGB(primary->format,0,0,0));
+  { // Tegn baggrund
+    SDL_Rect pos;
+    { float h=0;//atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
+      float v=atan2(tilstand.kamera_v_sin,tilstand.kamera_v_cos);
+      pos.x=(int)(h/(2*M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.y=(int)(v/(M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.w=bredde-pos.x;
+      pos.h=hoejde-pos.y;
+      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, primary, &pos );
+      pos.x-=BilledeBibliotek["baggrund"]->w;
+      pos.w=BilledeBibliotek["baggrund"]->w;
+      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, primary, &pos );
+    }
+    // Nulsitl z-buffer
     for (size_t i=0; i<bredde*hoejde; ++i)
       zbuf[i]=maks_afstand;
 
     //Tegn Bil
-    Ting bil("bil1",tilstand.mig_x,tilstand.mig_y,tilstand.mig_z,tilstand.mig_h,tilstand.mig_v,0.0);
-    tegn_ting(primary,zbuf,tilstand,bil);
+    tegn_ting(primary,zbuf,tilstand,tilstand.mig);
 
-    tegn_ting(primary,zbuf,tilstand,tilstand.hjul1);
-    tegn_ting(primary,zbuf,tilstand,tilstand.hjul2);
-    tegn_ting(primary,zbuf,tilstand,tilstand.hjul3);
-    tegn_ting(primary,zbuf,tilstand,tilstand.hjul4);
+    //tegn_ting(primary,zbuf,tilstand,tilstand.bil.minHjul1);
+    //tegn_ting(primary,zbuf,tilstand,tilstand.bil.minHjul2);
+    //tegn_ting(primary,zbuf,tilstand,tilstand.bil.minHjul3);
+    //tegn_ting(primary,zbuf,tilstand,tilstand.bil.minHjul4);
 
     // Nulstil blokeringer
     //FindBlokeringer(tilstand);
@@ -1437,9 +2183,9 @@ void *spil(void *t) // {{{
     tilstand.rammer_hvid=false;
 
     // Tegn bane
-    for (int x=Omraader::Afsnit(int(tilstand.mig_x-maks_afstand)); x<=Omraader::Afsnit(int(tilstand.mig_x+maks_afstand)); ++x)
-    { for (int y=Omraader::Afsnit(int(tilstand.mig_y-maks_afstand)); y<=Omraader::Afsnit(int(tilstand.mig_y+maks_afstand)); ++y)
-      { for (int z=Omraader::Afsnit(int(tilstand.mig_z-maks_afstand)); z<=Omraader::Afsnit(int(tilstand.mig_z+maks_afstand)); ++z)
+    for (int x=Omraader::Afsnit(int(tilstand.kamera_x-maks_afstand)); x<=Omraader::Afsnit(int(tilstand.kamera_x+maks_afstand)); ++x)
+    { for (int y=Omraader::Afsnit(int(tilstand.kamera_y-maks_afstand)); y<=Omraader::Afsnit(int(tilstand.kamera_y+maks_afstand)); ++y)
+      { for (int z=Omraader::Afsnit(int(tilstand.kamera_z-maks_afstand)); z<=Omraader::Afsnit(int(tilstand.kamera_z+maks_afstand)); ++z)
         { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
           for (vector<Trekant*>::const_iterator t=omraade.begin(); t!=omraade.end(); ++t)
             tegn_trekant3d(primary,zbuf,tilstand,**t);
@@ -1514,9 +2260,9 @@ void *spil(void *t) // {{{
     }
     else if (tilstand.rammer_groen) // Checkpoint
     { cout << "Check ... ramte grøn!" << endl;
-      tilstand.checkpoint_x=tilstand.mig_x;
-      tilstand.checkpoint_y=tilstand.mig_y;
-      tilstand.checkpoint_z=tilstand.mig_z;
+      tilstand.checkpoint_x=tilstand.mig.minX;
+      tilstand.checkpoint_y=tilstand.mig.minY;
+      tilstand.checkpoint_z=tilstand.mig.minZ;
     }
     else if (tilstand.rammer_hvid) // Hopper højt
     { cout << "Boink... ramte hvid!" << endl;
@@ -1662,7 +2408,7 @@ void *server(void *t) // {{{
       }
       else if (besked=="^tilstand")
       { stringstream ss;
-        Ting mig("pengvin",spiller->tilstand->mig_x,spiller->tilstand->mig_y,spiller->tilstand->mig_z,spiller->tilstand->mig_h,spiller->tilstand->mig_v,0.0);
+        Ting mig("pengvin",spiller->tilstand->mig.minX,spiller->tilstand->mig.minY,spiller->tilstand->mig.minZ,spiller->tilstand->mig.minH,spiller->tilstand->mig.minV,spiller->tilstand->mig.minT,0.0);
         ss << "ting " << mig.TilTekst() << "\n";
         pthread_mutex_lock(&spiller->tilstand->klienter_laas);
         for (size_t t=0; t<spiller->tilstand->ting.size(); ++t)
@@ -1689,11 +2435,11 @@ void *klient(void *t) // {{{
   while (!spiller->tilstand->quit)
   { stringstream ss;
     pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-    ss << spiller->tilstand->mig_x << " "
-       << spiller->tilstand->mig_y << " "
-       << spiller->tilstand->mig_z << " "
-       << spiller->tilstand->mig_h << " "
-       << spiller->tilstand->mig_v << "\n";
+    ss << spiller->tilstand->mig.minX << " "
+       << spiller->tilstand->mig.minY << " "
+       << spiller->tilstand->mig.minZ << " "
+       << spiller->tilstand->mig.minH << " "
+       << spiller->tilstand->mig.minV << "\n";
     string label_pos="^position\n";
     //cout << "Klient sender label " << label_pos << endl;
     SDLNet_TCP_Send(spiller->forbindelse,label_pos.c_str(),label_pos.length());
@@ -1816,7 +2562,7 @@ void *vaert(void *t) // {{{
       else
       { // Tilføj spiller
         spiller->tilstand=&tilstand;
-        spiller->figur=new Ting("pengvin",0.0,0.0,-10.0,0.0,0.0,0.0);
+        spiller->figur=new Ting("pengvin",0.0,0.0,-10.0,0.0,0.0,0.0,0.0);
         pthread_mutex_lock(&tilstand.klienter_laas);
         tilstand.ting.push_back(spiller->figur);
         pthread_mutex_unlock(&tilstand.klienter_laas);
@@ -1872,13 +2618,17 @@ int main(int argc, char **argv) // {{{{
   }
 
   // Init biblioteker
-  FigurBibliotek["bil1"]=smaa_trekanter(skaler_ting(-0.5,0.7,0.0,0.5,-0.7,0.5,laes_obj("ting/bil1.obj")));
+  //FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.2,-0.5,-2.3,1.2,0.7,laes_obj("ting/bil1.obj")));
+  FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.0,-0.1,-2.3,1.0,1.7,laes_obj("ting/bil2.obj")));
+  FigurBibliotek["fly"]=smaa_trekanter(skaler_ting(-1.0,-3.0,-1.0,1.0,3.0,1.0,laes_obj("ting/fly.obj")));
   FigurBibliotek["pengvin"]=smaa_trekanter(skaler_ting(-1,-1,-2,1,1,2,laes_obj("ting/pengvin.obj")));
-  FigurBibliotek["hjul"]=smaa_trekanter(skaler_ting(-0.5,-0.5,-0.5,0.5,0.5,0.5,laes_obj("ting/hjul.obj")));
+  FigurBibliotek["hjul"]=smaa_trekanter(skaler_ting(-0.5,-0.2,-0.5,0.5,0.2,0.5,laes_obj("ting/hjul3.obj")));
 
   BilledeBibliotek["sigtekorn"]=IMG_Load("billeder/sigtekorn.png");
   BilledeBibliotek["granat"]=IMG_Load("billeder/granat.png");
   BilledeBibliotek["pistol"]=IMG_Load("billeder/pistol.png");
+  BilledeBibliotek["baggrund"]=IMG_Load("billeder/baggrund.jpg");
+  BilledeBibliotek["tekstur_græs"]=IMG_Load("billeder/græs.jpg");
   LydeBibliotek["hop"]=Mix_LoadWAV("lyde/klang.wav" );
   LydeBibliotek["bang"]=Mix_LoadWAV("lyde/bang.wav" );
 
