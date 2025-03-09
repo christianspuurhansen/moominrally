@@ -18,7 +18,7 @@ using namespace std;
 #define GAMEPORT 1234
 size_t bredde=1024;
 size_t hoejde=768;
-float maks_afstand=200.0;
+float maks_afstand=150.0;
 float min_afstand=0.25;
 float friktion=0.9915;
 float friktion_fri=0.9995;
@@ -156,7 +156,7 @@ class Omraader // {{{
     void SetTrekanter(vector<Trekant> &ts); // Indekser trekanter efter omraade
     vector<Trekant*> &Omraade(int x, int y, int z); // Find trekanter i omraade
 
-    static int Afsnit(int v) { return v/(maks_afstand/20); }
+    static int Afsnit(int v) { return v/(maks_afstand/40); }
 
   private:
     int Indeks(int x, int y, int z) // {{{
@@ -645,17 +645,6 @@ class Tilstand // {{{
     float checkpoint_x;
     float checkpoint_y;
     float checkpoint_z;
-    //Colission detection
-    bool frem_blokeret;
-    bool tilbage_blokeret;
-    bool venstre_blokeret;
-    bool hoejre_blokeret;
-    bool ned_blokeret;
-    bool op_blokeret;
-    bool rammer_roed;
-    bool rammer_groen;
-    bool rammer_blaa;
-    bool rammer_hvid;
     bool tegn_stereogram;
 
     string banesti;
@@ -678,12 +667,6 @@ Tilstand::Tilstand() // {{{
 , checkpoint_x(0.0)
 , checkpoint_y(0.0)
 , checkpoint_z(10.0)
-, frem_blokeret(false)
-, tilbage_blokeret(false)
-, venstre_blokeret(false)
-, hoejre_blokeret(false)
-, op_blokeret(false)
-, ned_blokeret(false)
 , tegn_stereogram(false)
 , quit(false)
 { pthread_mutex_init(&klienter_laas,NULL);
@@ -1028,17 +1011,6 @@ inline void tegn_trekant2d_tekstur(SDL_Surface *dest, vector<float> &zbuf, int x
   }
 } // }}}
 
-void haandter_rammer(int r, int g, int b, Tilstand &t) // {{{
-{ if (r>2*g && r>2*b)
-    t.rammer_roed=true;
-  if (g>2*r && g>2*b)
-    t.rammer_groen=true;
-  if (b>2*r && b>2*g)
-    t.rammer_blaa=true;
-  if (r>=200 && g>=200 && b>=200)
-    t.rammer_hvid=true;
-} // }}}
-
 // Tegn en trekant ud fra 3D koordinater
 inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, const Trekant &trekant, const map<size_t,string> &teksturer, float tx1=NAN, float ty1=NAN, float tx2=NAN, float ty2=NAN, float tx3=NAN, float ty3=NAN) // {{{
 { // Forskyd koordinater
@@ -1071,80 +1043,6 @@ inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, c
   float fx3=rx3;
   float fy3=ry3*t.kamera_v_cos+rz3*t.kamera_v_sin;
   float fz3=rz3*t.kamera_v_cos-ry3*t.kamera_v_sin;
-  // Gem blokeringer {{{
-  if (ry1<5*min_afstand && ry1>0 && abs(rx1)<min_afstand && abs(rz1)<min_afstand)
-  { t.frem_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (ry2<5*min_afstand && ry2>0 && abs(rx2)<min_afstand && abs(rz2)<min_afstand)
-  { t.frem_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (ry3<5*min_afstand && ry3>0 && abs(rx3)<min_afstand && abs(rz3)<min_afstand)
-  { t.frem_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (ry1>-5*min_afstand && ry1<0 && abs(rx1)<min_afstand && abs(rz1)<min_afstand)
-  { t.tilbage_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (ry2>-5*min_afstand && ry2<0 && abs(rx2)<min_afstand && abs(rz2)<min_afstand)
-  { t.tilbage_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (ry3>-5*min_afstand && ry3<0 && abs(rx3)<min_afstand && abs(rz3)<min_afstand)
-  { t.tilbage_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx1<5*min_afstand && rx1>0 && abs(ry1)<min_afstand && abs(rz1)<min_afstand)
-  { t.hoejre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx2<5*min_afstand && rx2>0 && abs(ry2)<min_afstand && abs(rz2)<min_afstand)
-  { t.hoejre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx3<5*min_afstand && rx3>0 && abs(ry3)<min_afstand && abs(rz3)<min_afstand)
-  { t.hoejre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx1>-5*min_afstand && rx1<0 && abs(ry1)<min_afstand && abs(rz1)<min_afstand)
-  { t.venstre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx2>-5*min_afstand && rx2<0 && abs(ry2)<min_afstand && abs(rz2)<min_afstand)
-  { t.venstre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rx3>-5*min_afstand && rx3<0 && abs(ry3)<min_afstand && abs(rz3)<min_afstand)
-  { t.venstre_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz1<5*min_afstand && rz1>0 && abs(rx1)<min_afstand && abs(ry1)<min_afstand)
-  { t.op_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz2<5*min_afstand && rz2>0 && abs(rx2)<min_afstand && abs(ry2)<min_afstand)
-  { t.op_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz3<5*min_afstand && rz3>0 && abs(rx3)<min_afstand && abs(ry3)<min_afstand)
-  { t.op_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz1>-1*min_afstand && rz1<1 && abs(rx1)<min_afstand && abs(ry1)<min_afstand)
-  { t.ned_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz2>-1*min_afstand && rz2<1 && abs(rx2)<min_afstand && abs(ry2)<min_afstand)
-  { t.ned_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  if (rz3>-1*min_afstand && rz3<1 && abs(rx3)<min_afstand && abs(ry3)<min_afstand)
-  { t.ned_blokeret=true;
-    haandter_rammer(trekant.minR,trekant.minG,trekant.minB,t);
-  }
-  // }}}
   // Find skaermkoordinater
   if (fy1<min_afstand || fy2<min_afstand || fy3<min_afstand)
     return;
@@ -1157,12 +1055,10 @@ inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, c
   map<size_t,string>::const_iterator tekstur=teksturer.find(trekant.minR*256*256+trekant.minG*256+trekant.minB);
   if (tekstur!=teksturer.end())
     tegn_trekant2d_tekstur(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,BilledeBibliotek[tekstur->second],isnan(tx1)?trekant.minX1+trekant.minZ1:tx1,isnan(ty1)?trekant.minY1-trekant.minZ1:ty1,isnan(tx2)?trekant.minX2+trekant.minZ2:tx2,isnan(ty2)?trekant.minY2-trekant.minZ2:ty2,isnan(tx3)?trekant.minX3+trekant.minZ3:tx3,isnan(ty3)?trekant.minY3-trekant.minZ3:ty3);
-  if (trekant.minG>trekant.minR && trekant.minG>trekant.minB)
-    tegn_trekant2d_tekstur(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,BilledeBibliotek["tekstur_græs"],isnan(tx1)?trekant.minX1+trekant.minZ1:tx1,isnan(ty1)?trekant.minY1-trekant.minZ1:ty1,isnan(tx2)?trekant.minX2+trekant.minZ2:tx2,isnan(ty2)?trekant.minY2-trekant.minZ2:ty2,isnan(tx3)?trekant.minX3+trekant.minZ3:tx3,isnan(ty3)?trekant.minY3-trekant.minZ3:ty3);
-  else if (trekant.minR<=50 && trekant.minG<=50 && trekant.minB<=50)
-    tegn_trekant2d_tekstur(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,BilledeBibliotek["tekstur_asphalt"],isnan(tx1)?trekant.minX1+trekant.minZ1:tx1,isnan(ty1)?trekant.minY1-trekant.minZ1:ty1,isnan(tx2)?trekant.minX2+trekant.minZ2:tx2,isnan(ty2)?trekant.minY2-trekant.minZ2:ty2,isnan(tx3)?trekant.minX3+trekant.minZ3:tx3,isnan(ty3)?trekant.minY3-trekant.minZ3:ty3);
   else
+  //{ cout << "Trekant farve: " << (int)trekant.minR << "," << (int)trekant.minG<< "," << (int)trekant.minB << endl;
     tegn_trekant2d(dest,zbuf,x1,y1,fy1,x2,y2,fy2,x3,y3,fy3,trekant.minR,trekant.minG,trekant.minB);
+  //}
 } // }}}
 
 // Tegn en ting
@@ -1188,88 +1084,6 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
     t3.minZ3=t2.minZ3+ting.minZ;
     tegn_trekant3d(dest,zbuf,tilstand,t3,teksturer,t.minX1+t.minZ1,t.minY1-t.minZ1,t.minX2+t.minZ2,t.minY2-t.minZ2,t.minX3+t.minZ3,t.minY3-t.minZ3);
   }
-} // }}}
-
-// Implementer projektil som en ting
-class Projektil : public Ting // {{{
-{ public:
-   Projektil(stringstream &ss);
-   Projektil(float x, float y, float z, float h, float v, float t);
-   virtual ~Projektil();
-
-   virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
-   virtual bool Forsvind();
-   virtual string Type();
-   virtual string TilTekst();
-   size_t minAlder;
-}; // }}}
-Projektil::Projektil(stringstream &ss) // {{{
-: Ting()
-{ ss>>minX;
-  ss>>minY;
-  ss>>minZ;
-  ss>>minH;
-  ss>>minV;
-  minFart=6.0;
-  //ss>>minFart;
-  BeregnRetning();
-  ss>>minAlder;
-  minFigur="projektil";
-} // }}}
-Projektil::Projektil(float x, float y, float z, float h, float v, float t) // {{{
-: Ting("projektil",x,y,z,h,v,t,6.0)
-{ minAlder=0;
-} // }}}
-Projektil::~Projektil() // {{{
-{
-} // }}}
-string Projektil::Type() // {{{
-{ return "projektil";
-} // }}}
-void Projektil::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
-{ minX+=minH_cos*minV_cos*minFart*0.01*ticks;
-  minY+=minH_sin*minV_cos*minFart*0.01*ticks;
-  minZ+=minV_sin*minFart*0.01*ticks;
-
-  float mindsteAfstand=0.2f;
-  const Trekant *ramt=NULL;
-  for (int x=Omraader::Afsnit(int(minX)-1); x<=Omraader::Afsnit(int(minX)+1); ++x)
-  { for (int y=Omraader::Afsnit(int(minY)-1); y<=Omraader::Afsnit(int(minY)+1); ++y)
-    { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+2); ++z)
-      { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
-        for (size_t i=0; i<omraade.size(); ++i)
-        { const Trekant *t=omraade[i];
-          if (dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ)<=mindsteAfstand)
-          { // Rammer
-            mindsteAfstand=dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ);
-            ramt=t;
-          }
-          if (dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ)<=mindsteAfstand)
-          { // Rammer
-            mindsteAfstand=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
-            ramt=t;
-          }
-          if (dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ)<=mindsteAfstand)
-          { // Rammer
-            mindsteAfstand=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
-            ramt=t;
-          }
-        }
-      }
-    }
-  }
-  if (ramt)
-  { minAlder=1500;
-  }
-  minAlder+=ticks;
-} // }}}
-bool Projektil::Forsvind() // {{{
-{ return minZ<=-1.0 || minAlder>=1500;
-} // }}}
-string Projektil::TilTekst() // {{{
-{ stringstream resultat;
-  resultat << minX << " " << minY << " " << minZ << " " << minH << " " << minV << " " << minAlder;
-  return resultat.str();
 } // }}}
 
 // Implementer hjul som en ting
@@ -1942,6 +1756,95 @@ void Fly::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{{
 { tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
 } // }}}
 
+int max(int x, int y) // {{{
+{ if (x<=y)
+    return y;
+  return x;
+} // }}}
+int min(int x, int y) // {{{
+{ if (x<=y)
+    return x;
+  return y;
+} // }}}
+void tegn_verden(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
+{ vector<float> zbuf(bredde*hoejde,maks_afstand);
+  // Tegn baggrund
+    SDL_FillRect(skaerm,NULL,SDL_MapRGB(skaerm->format,0,0,0));
+    SDL_Rect pos;
+    { float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
+      float v=atan2(tilstand.kamera_v_sin,tilstand.kamera_v_cos);
+      pos.x=(int)(h/(2*M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.y=(int)(v/(M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.w=bredde-pos.x;
+      pos.h=hoejde-pos.y;
+      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, skaerm, &pos );
+      pos.x=(int)(h/(2*M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.y=(int)(v/(M_PI)*(BilledeBibliotek["baggrund"]->w));
+      pos.x-=BilledeBibliotek["baggrund"]->w;
+      pos.w=BilledeBibliotek["baggrund"]->w;
+      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, skaerm, &pos );
+    }
+    // Nulsitl z-buffer
+    for (size_t i=0; i<bredde*hoejde; ++i)
+      zbuf[i]=maks_afstand;
+
+    //Tegn Avatar
+    tilstand.mig->Tegn(skaerm,zbuf,tilstand);
+
+    // Tegn bane
+    for (int x=Omraader::Afsnit(int(tilstand.kamera_x-maks_afstand)); x<=Omraader::Afsnit(int(tilstand.kamera_x+maks_afstand)); ++x)
+    { for (int y=Omraader::Afsnit(int(tilstand.kamera_y-maks_afstand)); y<=Omraader::Afsnit(int(tilstand.kamera_y+maks_afstand)); ++y)
+      { for (int z=Omraader::Afsnit(int(tilstand.kamera_z-maks_afstand)); z<=Omraader::Afsnit(int(tilstand.kamera_z+maks_afstand)); ++z)
+        { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
+          for (vector<Trekant*>::const_iterator t=omraade.begin(); t!=omraade.end(); ++t)
+            tegn_trekant3d(skaerm,zbuf,tilstand,**t,kort_teksturer);
+        }
+      }
+    }
+
+
+    pthread_mutex_lock(&tilstand.klienter_laas);
+    for (size_t t=0; t<tilstand.ting.size(); ++t)
+    { tegn_ting(skaerm,zbuf,tilstand,*tilstand.ting[t],ingen_teksturer);
+    }
+    pthread_mutex_unlock(&tilstand.klienter_laas);
+
+    // Tegn stereogram {{{
+    if (tilstand.tegn_stereogram)
+    { //for (size_t i=0; i<sbuf.size(); ++i)
+      //  sbuf[i]=rand();
+      vector<Uint8> sbuf(bredde*hoejde*3,0);
+      srand(0);
+      for (size_t i=0; i<sbuf.size(); ++i)
+        sbuf[i]=rand();
+      int mbredde=bredde/10;
+      for (int y=0; y<hoejde; ++y)
+      { for (int x=0; x<bredde; ++x)
+        { if (x<mbredde)
+            pixelRGBA(skaerm,x,y,sbuf[3*(y*bredde+x)],sbuf[3*(y*bredde+x)+1],sbuf[3*(y*bredde+x)+2],255);
+          else
+          { float sumdist=0.0;
+	    float numdist=0.0;
+            for (int i=max(x-2,0); i<min(x+2,bredde-1); ++i)
+	    { numdist+=1.0;
+              sumdist+=zbuf[y*bredde+i];
+	    }
+	    float avgdist=sumdist/numdist;
+	    int mlen=mbredde-min(mbredde-10,int(float(mbredde-10)/(avgdist/5.0)));
+	    int src_x=int(x)-mlen;
+            sbuf[3*(y*bredde+x)]=sbuf[3*(y*bredde+src_x)];
+            sbuf[3*(y*bredde+x)+1]=sbuf[3*(y*bredde+src_x)+1];
+            sbuf[3*(y*bredde+x)+2]=sbuf[3*(y*bredde+src_x)+2];
+            pixelRGBA(skaerm,x,y,sbuf[3*(y*bredde+x)],sbuf[3*(y*bredde+x)+1],sbuf[3*(y*bredde+x)+2],255);
+            //pixelRGBA(skaerm,x,y,int(avgdist),int(avgdist),int(avgdist),255);
+            //pixelRGBA(skaerm,x,y,mlen,mlen,mlen,255);
+          }
+        }
+      }
+    } // }}}
+} // }}}
+
+
 // Bevæg spilleren ud fra tilstanden om
 // hvilke taster der er trykket, samt
 // spillerens retning
@@ -2129,40 +2032,20 @@ inline void menu_haendelse(const SDL_Event &e, int &pos, int &select, int &back)
   }
 } // }}}
 
-int max(int x, int y) // {{{
-{ if (x<=y)
-    return y;
-  return x;
-} // }}}
-
-int min(int x, int y) // {{{
-{ if (x<=y)
-    return x;
-  return y;
-} // }}}
-
-void *spil(void *t) // {{{
-{ Tilstand &tilstand(*(Tilstand*)t);
-  SDL_Surface *primary = SDL_SetVideoMode(bredde,hoejde,WINDOWDEAPTH,SDL_HWSURFACE | SDL_DOUBLEBUF /*| SDL_RESIZABLE | SDL_FULLSCREEN*/);
-  SDL_WM_SetCaption("Moomin Rally 3D","Moomon Rally 3D");
-  SDL_ShowCursor(false);
-  vector<float> zbuf(bredde*hoejde,maks_afstand);
-  vector<Uint8> sbuf(bredde*hoejde*3,0);
-  for (size_t i=0; i<sbuf.size(); ++i)
-    sbuf[i]=rand();
-
-  // Menu
-  int pos=0;
+void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
+{ int pos=0;
   int enter=0;
   int tilbage=0;
+  size_t ticks=SDL_GetTicks();
   while (pos!=2 || enter==0)
-  { if (pos==0 && enter==1)
-    { delete tilstand.mig;
-      tilstand.mig=new Bil(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+  { size_t ticks2=SDL_GetTicks();
+    size_t frameTicks=ticks2-ticks;
+    ticks=ticks2;
+    if (pos==0 && enter==1)
+    { indlaes_bane( "baner/bane1.obj", tilstand);
     }
     else if (pos==1 && enter==1)
-    { delete tilstand.mig;
-      tilstand.mig=new Fly(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+    { indlaes_bane( "baner/stadion2.obj", tilstand);
     }
     SDL_Event event;
     enter=0;
@@ -2170,115 +2053,113 @@ void *spil(void *t) // {{{
     while (SDL_PollEvent(&event))
     { menu_haendelse(event,pos,enter,tilbage);
     }
-    SDL_FillRect(primary,NULL,SDL_MapRGB(primary->format,0,0,0));
+    if (pos<0)
+      pos=2;
+    if (pos>2)
+      pos=0;
+    // Tegn baggrund
+    float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
+    h+=0.0001*frameTicks;
+    tilstand.kamera_h_cos=cos(h);
+    tilstand.kamera_h_sin=sin(h);
+    tegn_verden(tilstand,skaerm);
+    //SDL_FillRect(skaerm,NULL,SDL_MapRGB(skaerm->format,0,0,0));
+    // Draw menu background
     SDL_Rect box;
     box.x=10;
     box.y=10;
     box.w=100;
     box.h=100;
-    SDL_FillRect(primary,&box,SDL_MapRGB(primary->format,100,100,50));
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,100,100,50));
+    // Draw selected item
     box.x=20;
     box.y=20+pos*30;
     box.w=80;
     box.h=20;
-    SDL_FillRect(primary,&box,SDL_MapRGB(primary->format,20,100,20));
-    stringRGBA(primary,25,25,"Bil",0,0,255,255);
-    stringRGBA(primary,25,55,"Fly",0,0,255,255);
-    stringRGBA(primary,25,85,"Start",0,0,255,255);
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,20,100,20));
+    // Draw items texts
+    stringRGBA(skaerm,25,25,"Bane1",0,0,255,255);
+    stringRGBA(skaerm,25,55,"Bane2",0,0,255,255);
+    stringRGBA(skaerm,25,85,"Tilbage",0,0,255,255);
 
-    SDL_Flip(primary);
+    SDL_Flip(skaerm);
   }
+} // }}}
+void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
+{ int pos=0;
+  int enter=0;
+  int tilbage=0;
+  size_t ticks=SDL_GetTicks();
+  while (pos!=3 || enter==0)
+  { size_t ticks2=SDL_GetTicks();
+    size_t frameTicks=ticks2-ticks;
+    ticks=ticks2;
+    if (pos==0 && enter==1)
+    { delete tilstand.mig;
+      tilstand.mig=new Bil(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+    }
+    else if (pos==1 && enter==1)
+    { delete tilstand.mig;
+      tilstand.mig=new Fly(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+    }
+    else if (pos==2 && enter==1)
+    { menu_bane(tilstand,skaerm);
+    }
+    SDL_Event event;
+    enter=0;
+    tilbage=0;
+    while (SDL_PollEvent(&event))
+    { menu_haendelse(event,pos,enter,tilbage);
+    }
+    if (pos<0)
+      pos=3;
+    if (pos>3)
+      pos=0;
+    // Tegn baggrund
+    float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
+    h+=0.0001*frameTicks;
+    tilstand.kamera_h_cos=cos(h);
+    tilstand.kamera_h_sin=sin(h);
+    tegn_verden(tilstand,skaerm);
+    //SDL_FillRect(skaerm,NULL,SDL_MapRGB(skaerm->format,0,0,0));
+    // Draw menu background
+    SDL_Rect box;
+    box.x=10;
+    box.y=10;
+    box.w=100;
+    box.h=130;
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,100,100,50));
+    // Draw selected item
+    box.x=20;
+    box.y=20+pos*30;
+    box.w=80;
+    box.h=20;
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,20,100,20));
+    // Draw items texts
+    stringRGBA(skaerm,25,25,"Bil",0,0,255,255);
+    stringRGBA(skaerm,25,55,"Fly",0,0,255,255);
+    stringRGBA(skaerm,25,85,"Bane",0,0,255,255);
+    stringRGBA(skaerm,25,115,"Start",0,0,255,255);
+
+    SDL_Flip(skaerm);
+  }
+} // }}}
+
+void *spil(void *t) // {{{
+{ Tilstand &tilstand(*(Tilstand*)t);
+  SDL_Surface *primary = SDL_SetVideoMode(bredde,hoejde,WINDOWDEAPTH,SDL_HWSURFACE | SDL_DOUBLEBUF /*| SDL_RESIZABLE | SDL_FULLSCREEN*/);
+  SDL_WM_SetCaption("Moomin Rally 3D","Moomon Rally 3D");
+  SDL_ShowCursor(false);
+
+  // Menu
+  menu(tilstand,primary);
 
   // Kør spil
   size_t ticks=SDL_GetTicks();
   size_t frameTicks=1;
 
   while (!tilstand.quit)
-  { // Tegn baggrund
-    SDL_FillRect(primary,NULL,SDL_MapRGB(primary->format,0,0,0));
-    SDL_Rect pos;
-    { float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
-      float v=atan2(tilstand.kamera_v_sin,tilstand.kamera_v_cos);
-      pos.x=(int)(h/(2*M_PI)*(BilledeBibliotek["baggrund"]->w));
-      pos.y=(int)(v/(M_PI)*(BilledeBibliotek["baggrund"]->w));
-      pos.w=bredde-pos.x;
-      pos.h=hoejde-pos.y;
-      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, primary, &pos );
-      pos.x=(int)(h/(2*M_PI)*(BilledeBibliotek["baggrund"]->w));
-      pos.y=(int)(v/(M_PI)*(BilledeBibliotek["baggrund"]->w));
-      pos.x-=BilledeBibliotek["baggrund"]->w;
-      pos.w=BilledeBibliotek["baggrund"]->w;
-      SDL_BlitSurface(BilledeBibliotek["baggrund"], NULL, primary, &pos );
-    }
-    // Nulsitl z-buffer
-    for (size_t i=0; i<bredde*hoejde; ++i)
-      zbuf[i]=maks_afstand;
-
-    //Tegn Avatar
-    tilstand.mig->Tegn(primary,zbuf,tilstand);
-
-    // Nulstil blokeringer
-    //FindBlokeringer(tilstand);
-    tilstand.frem_blokeret=false;
-    tilstand.tilbage_blokeret=false;
-    tilstand.venstre_blokeret=false;
-    tilstand.hoejre_blokeret=false;
-    tilstand.op_blokeret=false;
-    tilstand.ned_blokeret=false;
-
-    // Nulstil hvad røres
-    tilstand.rammer_roed=false;
-    tilstand.rammer_groen=false;
-    tilstand.rammer_blaa=false;
-    tilstand.rammer_hvid=false;
-
-    // Tegn bane
-    for (int x=Omraader::Afsnit(int(tilstand.kamera_x-maks_afstand)); x<=Omraader::Afsnit(int(tilstand.kamera_x+maks_afstand)); ++x)
-    { for (int y=Omraader::Afsnit(int(tilstand.kamera_y-maks_afstand)); y<=Omraader::Afsnit(int(tilstand.kamera_y+maks_afstand)); ++y)
-      { for (int z=Omraader::Afsnit(int(tilstand.kamera_z-maks_afstand)); z<=Omraader::Afsnit(int(tilstand.kamera_z+maks_afstand)); ++z)
-        { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
-          for (vector<Trekant*>::const_iterator t=omraade.begin(); t!=omraade.end(); ++t)
-            tegn_trekant3d(primary,zbuf,tilstand,**t,ingen_teksturer);
-        }
-      }
-    }
-
-
-    pthread_mutex_lock(&tilstand.klienter_laas);
-    for (size_t t=0; t<tilstand.ting.size(); ++t)
-    { tegn_ting(primary,zbuf,tilstand,*tilstand.ting[t],ingen_teksturer);
-    }
-    pthread_mutex_unlock(&tilstand.klienter_laas);
-
-    // Tegn stereogram {{{
-    if (tilstand.tegn_stereogram)
-    { //for (size_t i=0; i<sbuf.size(); ++i)
-      //  sbuf[i]=rand();
-      int mbredde=bredde/10;
-      for (int y=0; y<hoejde; ++y)
-      { for (int x=0; x<bredde; ++x)
-        { if (x<mbredde)
-            pixelRGBA(primary,x,y,sbuf[3*(y*bredde+x)],sbuf[3*(y*bredde+x)+1],sbuf[3*(y*bredde+x)+2],255);
-          else
-          { float sumdist=0.0;
-	    float numdist=0.0;
-            for (int i=max(x-2,0); i<min(x+2,bredde-1); ++i)
-	    { numdist+=1.0;
-              sumdist+=zbuf[y*bredde+i];
-	    }
-	    float avgdist=sumdist/numdist;
-	    int mlen=mbredde-min(mbredde-10,int(float(mbredde-10)/(avgdist/5.0)));
-	    int src_x=int(x)-mlen;
-            sbuf[3*(y*bredde+x)]=sbuf[3*(y*bredde+src_x)];
-            sbuf[3*(y*bredde+x)+1]=sbuf[3*(y*bredde+src_x)+1];
-            sbuf[3*(y*bredde+x)+2]=sbuf[3*(y*bredde+src_x)+2];
-            pixelRGBA(primary,x,y,sbuf[3*(y*bredde+x)],sbuf[3*(y*bredde+x)+1],sbuf[3*(y*bredde+x)+2],255);
-            //pixelRGBA(primary,x,y,int(avgdist),int(avgdist),int(avgdist),255);
-            //pixelRGBA(primary,x,y,mlen,mlen,mlen,255);
-          }
-        }
-      }
-    } // }}}
+  { tegn_verden(tilstand,primary);
     // Beregn og vis FPS // {{{
     // ticks bruges også til hvor
     // meget bevægelse der skal ske
@@ -2289,39 +2170,13 @@ void *spil(void *t) // {{{
     stringstream ss;
     ss << "FPS: " << 1000.0/(float(frameTicks));
     stringRGBA(primary,5,5,ss.str().c_str(),0,0,255,255);
-    // Flip opdaterer skærmen med det nye billede
     // }}}
     // Opdater skærm
     SDL_Flip(primary);
 
-    //if (tilstand.rammer_roed) // Tilbage til Checkpoint
-    //{ cout << "Aaargh ... ramte rød!" << endl;
-    //  tilstand.mig_x=tilstand.checkpoint_x;
-    //  tilstand.mig_y=tilstand.checkpoint_y;
-    //  tilstand.mig_z=tilstand.checkpoint_z;
-    //  tilstand.mig_acceleration_x=0.0;
-    //  tilstand.mig_acceleration_y=0.0;
-    //  tilstand.mig_acceleration_z=-0.1;
-    //}
-    //else 
-    if (tilstand.rammer_blaa) // Vinder
-    { cout << "Yes ... ramte blå!" << endl;
-      tilstand.quit=true;
-    }
-    else if (tilstand.rammer_groen) // Checkpoint
-    { cout << "Check ... ramte grøn!" << endl;
-      tilstand.checkpoint_x=tilstand.mig->minX;
-      tilstand.checkpoint_y=tilstand.mig->minY;
-      tilstand.checkpoint_z=tilstand.mig->minZ;
-    }
-    else if (tilstand.rammer_hvid) // Hopper højt
-    { cout << "Boink... ramte hvid!" << endl;
-      //tilstand.mig_hastighed_z=8.0;
-    }
-
     pthread_mutex_lock(&tilstand.klienter_laas);
     // Bevæg spilleren
-    for (size_t i=frameTicks; i>0;)
+    for (size_t i=min(100,frameTicks); i>0;)
     { if (i>1)
       { bevaeg(tilstand,1);
         i-=1;
@@ -2447,13 +2302,6 @@ void *server(void *t) // {{{
           spiller->tilstand->ting.push_back(ting);
           pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
         }
-        else if (type=="projektil")
-        { //cout << "Opretter projektil" << endl;
-          Ting *ting=new Projektil(ss);
-          pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-          spiller->tilstand->ting.push_back(ting);
-          pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-        }
         else cerr << "Klient: Ukendt ting: " << type << endl;
       }
       else if (besked=="^tilstand")
@@ -2545,14 +2393,6 @@ void *klient(void *t) // {{{
       else if (type=="hjul")
       { //cout << "Opretter hjul" << endl;
         Ting *ting=new Hjul(ss2);
-        ting->sendt=true;
-        pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-        spiller->tilstand->ting.push_back(ting);
-        pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-      }
-      else if (type=="projektil")
-      { //cout << "Opretter projektil" << endl;
-        Ting *ting=new Projektil(ss2);
         ting->sendt=true;
         pthread_mutex_lock(&spiller->tilstand->klienter_laas);
         spiller->tilstand->ting.push_back(ting);
@@ -2680,8 +2520,9 @@ int main(int argc, char **argv) // {{{{
   BilledeBibliotek["baggrund"]=IMG_Load("billeder/baggrund.jpg");
   BilledeBibliotek["tekstur_græs"]=IMG_Load("billeder/græs.jpg");
   BilledeBibliotek["tekstur_asphalt"]=IMG_Load("billeder/asphalt.png");
-  kort_teksturer[20*256*256+20*256+20]="tekstur_asphalt";
-  kort_teksturer[200*256*256+20*256+20]="tekstur_græs";
+  kort_teksturer[43*256*256+46*256+49]="tekstur_asphalt";
+  kort_teksturer[18*256*256+105*256+54]="tekstur_græs";
+  kort_teksturer[70*256*256+183*256+73]="tekstur_græs";
   LydeBibliotek["hop"]=Mix_LoadWAV("lyde/klang.wav" );
   LydeBibliotek["bang"]=Mix_LoadWAV("lyde/bang.wav" );
 
