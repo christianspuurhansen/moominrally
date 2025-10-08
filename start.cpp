@@ -5,12 +5,14 @@
 #include <tuple>
 #include <sstream>
 #include <cmath>
+#include <algorithm>
 #include <SDL/SDL.h>
 #include <SDL/SDL_gfxPrimitives.h>
 #include <SDL/SDL_image.h>
 #include <SDL/SDL_mixer.h>
 #include <SDL/SDL_net.h>
 #include <pthread.h>
+#include <dirent.h>
 
 using namespace std;
 
@@ -351,6 +353,7 @@ class Avatar : public Ting // {{{
     virtual void Tilbage(size_t ticks)=0;
     virtual void SetRetning(bool venstre, bool hoejre)=0;
     virtual void Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand)=0;
+    virtual void TilCheckpoint(Tilstand &tilstand)=0;
 
     bool minSmadret;
     int minSmadretTid;
@@ -369,7 +372,7 @@ Avatar::Avatar(const string &figur, float x, float y, float z, float h, float v,
 {
 } // }}}
 
-// Definer bil som en ting
+// Definer bil som en avatar
 class Bil : public Avatar // {{{
 { public:
     Bil();
@@ -386,15 +389,18 @@ class Bil : public Avatar // {{{
     virtual void Tilbage(size_t ticks);
     virtual void SetRetning(bool venstre, bool hoejre);
     virtual void Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand);
+    virtual void TilCheckpoint(Tilstand &tilstand);
 
     Hjul minHjul1;
     Hjul minHjul2;
     Hjul minHjul3;
     Hjul minHjul4;
+    int minSkridStart;
+    int minAccellererStart;
 
 }; // }}}
 
-// Definer bil som en ting
+// Definer fly som en avatar
 class Fly : public Avatar // {{{
 { public:
     Fly();
@@ -411,8 +417,34 @@ class Fly : public Avatar // {{{
     virtual void Tilbage(size_t ticks);
     virtual void SetRetning(bool venstre, bool hoejre);
     virtual void Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand);
+    virtual void TilCheckpoint(Tilstand &tilstand);
 
     // Propel minPropel;
+    float minZhastighed;
+    bool minKontakt;
+}; // }}}
+
+// Definer båd som en avatar
+class Baad : public Avatar // {{{
+{ public:
+    Baad();
+    Baad(stringstream &ss);
+    Baad(float x, float y, float z, float h, float v, float t, float fart);
+    virtual ~Baad();
+
+    virtual void Bevaeg(size_t ticks, Tilstand &tilstand);
+    virtual bool Forsvind();
+    virtual string Type();
+    virtual string TilTekst();
+
+    virtual void Frem(size_t ticks);
+    virtual void Tilbage(size_t ticks);
+    virtual void SetRetning(bool venstre, bool hoejre);
+    virtual void Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand);
+    virtual void TilCheckpoint(Tilstand &tilstand);
+
+    float minXhastighed;
+    float minYhastighed;
     float minZhastighed;
     bool minKontakt;
 }; // }}}
@@ -1089,7 +1121,7 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
 
 void rammer(Tilstand &tilstand, const Trekant &trekant) // {{{
 { if (trekant.minB>=200 && trekant.minG<=160 && trekant.minR<=160)
-  { cout << "Rammer med farve: " << (int)trekant.minR << "," << (int)trekant.minG << "," << (int)trekant.minB << endl;
+  { //cout << "Rammer med farve: " << (int)trekant.minR << "," << (int)trekant.minG << "," << (int)trekant.minB << endl;
     tilstand.bane_faerdig=true;
   }
 } // }}}
@@ -1237,9 +1269,13 @@ Bil::Bil() // {{{
 , minHjul3(-2, -1, 0, 0, 0, 0, 0)
 , minHjul4(-2, 1, 0, 0, 0, 0, 0)
 { minSmadret=false;
-  // Start motor
-  Mix_Volume(5, 100);
+  // Start lyde
+  Mix_Volume(5, 0);
   Mix_PlayChannel(5, LydeBibliotek["bil_motor"], -1 );
+  Mix_Volume(6, 0);
+  Mix_PlayChannel(6, LydeBibliotek["bil_skrid"], -1 );
+  minSkridStart=100;
+  minAccellererStart=100;
 } // }}}
 Bil::Bil(stringstream &ss) // {{{
 : Avatar()
@@ -1249,9 +1285,13 @@ Bil::Bil(stringstream &ss) // {{{
 , minHjul4(ss)
 { ss>>minSmadret;
   ss>>minSmadretTid;
-  // Start motor
-  Mix_Volume(5, 100);
+  // Start lyde
+  Mix_Volume(5, 0);
   Mix_PlayChannel(5, LydeBibliotek["bil_motor"], -1 );
+  Mix_Volume(6, 0);
+  Mix_PlayChannel(6, LydeBibliotek["bil_skrid"], -1 );
+  minSkridStart=100;
+  minAccellererStart=100;
 } // }}}
 Bil::Bil(float x, float y, float z, float h, float v, float t, float fart) // {{{
 : Avatar("bil",x,y,z,h,v,t,fart)
@@ -1260,9 +1300,14 @@ Bil::Bil(float x, float y, float z, float h, float v, float t, float fart) // {{
 , minHjul3(x-2.0,y-1.0,z,h,v,t,fart)
 , minHjul4(x-2.0,y+1.0,z,h,v,t,fart)
 { minSmadret=false;
-  // Start motor
-  Mix_Volume(5, 100);
+  // Start lyde
+  Mix_Volume(5, 0);
   Mix_PlayChannel(5, LydeBibliotek["bil_motor"], -1 );
+  Mix_Volume(6, 0);
+  Mix_PlayChannel(6, LydeBibliotek["bil_skrid"], -1 );
+
+  minSkridStart=100;
+  minAccellererStart=100;
 } // }}}
 Bil::~Bil() // {{{
 {
@@ -1276,60 +1321,7 @@ void Bil::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
   { if (minSmadretTid>=5000)
     { minSmadret=false;
       minSmadretTid=0;
-      minX=tilstand.checkpoint_x;
-      minY=tilstand.checkpoint_y;
-      minZ=tilstand.checkpoint_z;
-      minH=0;
-      minV=0;
-      minT=0;
-      minH_cos=cos(minH);
-      minH_sin=sin(minH);
-      minV_cos=cos(minV);
-      minV_sin=sin(minV);
-      minT_cos=cos(minT);
-      minT_sin=sin(minT);
-      // Placer hjul1
-      float h1x,h1y,h1z;
-      roter3d(2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h1x,h1y,h1z);
-      minHjul1.minXhastighed+=0;
-      minHjul1.minYhastighed+=0;
-      minHjul1.minZhastighed+=0;
-      minHjul1.minX=minX+h1x;
-      minHjul1.minY=minY+h1y;
-      minHjul1.minZ=minZ+h1z;
-      // Placer hjul 2
-      float h2x;
-      float h2y;
-      float h2z;
-      roter3d(2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h2x,h2y,h2z);
-      minHjul2.minXhastighed+=0;
-      minHjul2.minYhastighed+=0;
-      minHjul2.minZhastighed+=0;
-      minHjul2.minX=minX+h2x;
-      minHjul2.minY=minY+h2y;
-      minHjul2.minZ=minZ+h2z;
-      // Placer hjul 3
-      float h3x;
-      float h3y;
-      float h3z;
-      roter3d(-2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h3x,h3y,h3z);
-      minHjul3.minXhastighed+=0;
-      minHjul3.minYhastighed+=0;
-      minHjul3.minZhastighed+=0;
-      minHjul3.minX=minX+h3x;
-      minHjul3.minY=minY+h3y;
-      minHjul3.minZ=minZ+h3z;
-      // Placer hjul 4
-      float h4x;
-      float h4y;
-      float h4z;
-      roter3d(-2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h4x,h4y,h4z);
-      minHjul4.minXhastighed+=0;
-      minHjul4.minYhastighed+=0;
-      minHjul4.minZhastighed+=0;
-      minHjul4.minX=minX+h4x;
-      minHjul4.minY=minY+h4y;
-      minHjul4.minZ=minZ+h4z;
+      TilCheckpoint(tilstand);
     }
     else
       minSmadretTid+=ticks;
@@ -1500,12 +1492,17 @@ void Bil::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
     minHjul4.minY=minY+h4y;
     minHjul4.minZ=minZ+h4z;
   }
+  // Afspil lyd
   if (!minSmadret)
-  { Mix_Volume(5, int(minFart*10.0) );
+  { Mix_Volume(5, max(0,50-minAccellererStart/10) );
+    Mix_Volume(6, max(0,(50-minSkridStart)*(minFart>=10.0?1:0)) );
   }
   else
   { Mix_Volume(5, 0 );
+    Mix_Volume(6, 0 );
   }
+  minAccellererStart=min(400,minAccellererStart+(int)ticks);
+  minSkridStart=min(400,minSkridStart+(int)ticks);
 } // }}}
 bool Bil::Forsvind() // {{{
 { return minZ<=-1.0;
@@ -1557,6 +1554,9 @@ void Bil::Frem(size_t ticks) // {{{
   }
   else
     minHjul4.Spin(0.008);
+
+  // Registrer lyd
+  minAccellererStart=0;
 } // }}}
 void Bil::Tilbage(size_t ticks) // {{{
 { if (minHjul1.minKontakt)
@@ -1597,6 +1597,9 @@ void Bil::SetRetning(bool venstre, bool hoejre) // {{{
   minHjul2.SetRetning(minH+(venstre?0.15:0.0)-(hoejre?0.15:0.0),minT);
   minHjul3.SetRetning(minH,minT);
   minHjul4.SetRetning(minH,minT);
+  // Registrer lyd
+  if (venstre || hoejre)
+    minSkridStart=0;
 } // }}}
 void Bil::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{{
 { tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
@@ -1604,6 +1607,62 @@ void Bil::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{{
   tegn_ting(dest,zbuf,tilstand,minHjul2,ingen_teksturer);
   tegn_ting(dest,zbuf,tilstand,minHjul3,ingen_teksturer);
   tegn_ting(dest,zbuf,tilstand,minHjul4,ingen_teksturer);
+} // }}}
+void Bil::TilCheckpoint(Tilstand &tilstand) // {{{
+{ minX=tilstand.checkpoint_x;
+  minY=tilstand.checkpoint_y;
+  minZ=tilstand.checkpoint_z;
+  minH=0;
+  minV=0;
+  minT=0;
+  minH_cos=cos(minH);
+  minH_sin=sin(minH);
+  minV_cos=cos(minV);
+  minV_sin=sin(minV);
+  minT_cos=cos(minT);
+  minT_sin=sin(minT);
+  // Placer hjul1
+  float h1x,h1y,h1z;
+  roter3d(2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h1x,h1y,h1z);
+  minHjul1.minXhastighed=0;
+  minHjul1.minYhastighed=0;
+  minHjul1.minZhastighed=0;
+  minHjul1.minX=minX+h1x;
+  minHjul1.minY=minY+h1y;
+  minHjul1.minZ=minZ+h1z;
+  // Placer hjul 2
+  float h2x;
+  float h2y;
+  float h2z;
+  roter3d(2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h2x,h2y,h2z);
+  minHjul2.minXhastighed=0;
+  minHjul2.minYhastighed=0;
+  minHjul2.minZhastighed=0;
+  minHjul2.minX=minX+h2x;
+  minHjul2.minY=minY+h2y;
+  minHjul2.minZ=minZ+h2z;
+  // Placer hjul 3
+  float h3x;
+  float h3y;
+  float h3z;
+  roter3d(-2.0,-1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h3x,h3y,h3z);
+  minHjul3.minXhastighed=0;
+  minHjul3.minYhastighed=0;
+  minHjul3.minZhastighed=0;
+  minHjul3.minX=minX+h3x;
+  minHjul3.minY=minY+h3y;
+  minHjul3.minZ=minZ+h3z;
+  // Placer hjul 4
+  float h4x;
+  float h4y;
+  float h4z;
+  roter3d(-2.0,1.0,0.0,minH_cos,minH_sin,minV_cos,minV_sin,minT_cos,minT_sin,h4x,h4y,h4z);
+  minHjul4.minXhastighed=0;
+  minHjul4.minYhastighed=0;
+  minHjul4.minZhastighed=0;
+  minHjul4.minX=minX+h4x;
+  minHjul4.minY=minY+h4y;
+  minHjul4.minZ=minZ+h4z;
 } // }}}
 
 // Implementer fly som en ting
@@ -1679,18 +1738,7 @@ void Fly::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
   { if (minSmadretTid>=5000)
     { minSmadret=false;
       minSmadretTid=0;
-      minX=tilstand.checkpoint_x;
-      minY=tilstand.checkpoint_y;
-      minZ=tilstand.checkpoint_z;
-      minH=0;
-      minV=0;
-      minT=0;
-      minH_cos=cos(minH);
-      minH_sin=sin(minH);
-      minV_cos=cos(minV);
-      minV_sin=sin(minV);
-      minT_cos=cos(minT);
-      minT_sin=sin(minT);
+      TilCheckpoint(tilstand);
     }
     else
       minSmadretTid+=ticks;
@@ -1808,6 +1856,235 @@ void Fly::SetRetning(bool venstre, bool hoejre) // {{{
 } // }}}
 void Fly::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{{
 { tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
+} // }}}
+void Fly::TilCheckpoint(Tilstand &tilstand) // {{{
+{ minX=tilstand.checkpoint_x;
+  minY=tilstand.checkpoint_y;
+  minZ=tilstand.checkpoint_z;
+  minH=0;
+  minV=0;
+  minT=0;
+  minZhastighed=0.0;
+  minFart=5.0;
+  minH_cos=cos(minH);
+  minH_sin=sin(minH);
+  minV_cos=cos(minV);
+  minV_sin=sin(minV);
+  minT_cos=cos(minT);
+  minT_sin=sin(minT);
+} // }}}
+
+// Implementer baad som en ting
+Baad::Baad() // {{{
+: Avatar("baad",0.0,0.0,0.0,0.0,0.0,0.0,0.0)
+{ minSmadret=false;
+  minXhastighed=0.0;
+  minYhastighed=0.0;
+  minZhastighed=0.0;
+  minKontakt=false;
+  // Start motor
+  Mix_Volume(5, 0);
+  Mix_PlayChannel(5, LydeBibliotek["fly_motor"], -1 );
+} // }}}
+Baad::Baad(stringstream &ss) // {{{
+: Avatar()
+//, minPropel(ss)
+{ ss>>minSmadret;
+  ss>>minSmadretTid;
+  ss>>minXhastighed;
+  ss>>minYhastighed;
+  ss>>minZhastighed;
+  ss>>minKontakt;
+  // Start motor
+  Mix_Volume(5, 0);
+  Mix_PlayChannel(5, LydeBibliotek["fly_motor"], -1 );
+} // }}}
+Baad::Baad(float x, float y, float z, float h, float v, float t, float fart) // {{{
+: Avatar("baad",x,y,z,h,v,t,fart)
+{ minSmadret=false;
+  minXhastighed=0.0;
+  minYhastighed=0.0;
+  minZhastighed=0.0;
+  minKontakt=false;
+  // Start motor
+  Mix_Volume(5, 0);
+  Mix_PlayChannel(5, LydeBibliotek["baad_motor"], -1 );
+} // }}}
+Baad::~Baad() // {{{
+{
+  // Stop motor
+  Mix_HaltChannel(5);
+} // }}}
+string Baad::Type() // {{{
+{ return "baad";
+} // }}}
+void Baad::Bevaeg(size_t ticks, Tilstand &tilstand) // {{{
+{ minKontakt=false;
+  for (int x=Omraader::Afsnit(int(minX)-1); x<=Omraader::Afsnit(int(minX)+1); ++x)
+  { for (int y=Omraader::Afsnit(int(minY)-1); y<=Omraader::Afsnit(int(minY)+1); ++y)
+    { for (int z=Omraader::Afsnit(int(minZ)-1); z<=Omraader::Afsnit(int(minZ)+1); ++z)
+      { vector<Trekant*> &omraade(tilstand.omraader.Omraade(x,y,z));
+        for (size_t i=0; i<omraade.size(); ++i)
+        { const Trekant *t=omraade[i];
+          float d1=dist(t->minX1,t->minY1,t->minZ1,minX,minY,minZ);
+          if (d1<=0.5) // Hjul radius
+          { // Rammer
+            rammer(tilstand,*t);
+            minKontakt=true;
+            float retningX=minX-t->minX1;
+            float retningY=minY-t->minY1;
+            float retningZ=minZ-t->minZ1;
+            if (d1<=0.001f)
+            { retningX=0.1f;
+              d1=0.1f;
+            }
+            minX+=(0.5-d1)*retningX; // Correct position
+            minY+=(0.5-d1)*retningY; // Correct position
+            minZ+=(0.5-d1)*retningZ; // Correct position
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.03f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.03f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.03f; // Bounce
+          }
+          float d2=dist(t->minX2,t->minY2,t->minZ2,minX,minY,minZ);
+          if (d2<=0.5)
+          { // Rammer
+            rammer(tilstand,*t);
+            minKontakt=true;
+            float retningX=minX-t->minX2;
+            float retningY=minY-t->minY2;
+            float retningZ=minZ-t->minZ2;
+            if (d2<=0.001f)
+            { retningX=0.1f;
+              d2=0.1f;
+            }
+            minX+=(0.5-d2)*retningX; // Correct position
+            minY+=(0.5-d2)*retningY; // Correct position
+            minZ+=(0.5-d2)*retningZ; // Correct position
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.03f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.03f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.03f; // Bounce
+          }
+          float d3=dist(t->minX3,t->minY3,t->minZ3,minX,minY,minZ);
+          if (d3<=0.5)
+          { // Rammer
+            rammer(tilstand,*t);
+            minKontakt=true;
+            float retningX=minX-t->minX3;
+            float retningY=minY-t->minY3;
+            float retningZ=minZ-t->minZ3;
+            if (d3<=0.001f)
+            { retningX=0.1f;
+              d3=0.1f;
+            }
+            minX+=(0.5-d3)*retningX; // Correct position
+            minY+=(0.5-d3)*retningY; // Correct position
+            minZ+=(0.5-d3)*retningZ; // Correct position
+            minXhastighed+=retningX*(abs(minXhastighed*1.0)+1.0)*0.03f; // Bounce
+            minYhastighed+=retningY*(abs(minYhastighed*1.0)+1.0)*0.03f; // Bounce
+            minZhastighed+=retningZ*(abs(minZhastighed*1.0)+1.0)*0.03f; // Bounce
+          }
+        }
+      }
+    }
+  }
+  // Tyngdekraft
+  if (minZ>=0.0)
+    minZhastighed-=tyngdekraft*ticks;
+  else
+    minZhastighed+=tyngdekraft*ticks;
+  
+  // Friktion
+  minXhastighed*=minKontakt?friktion:friktion_fri;
+  minYhastighed*=minKontakt?friktion:friktion_fri;
+  minZhastighed*=minKontakt?friktion:friktion_fri;
+
+  // Udfør bevaegelse
+  minX+=minXhastighed*0.001*ticks;
+  minY+=minYhastighed*0.001*ticks;
+  minZ+=minZhastighed*0.001*ticks;
+
+  // Motorlyd
+  float hastighed=dist(0.0,0.0,0.0,minXhastighed,minYhastighed,minZhastighed);
+  if (!minSmadret)
+  { Mix_Volume(5, int(hastighed*3.0) );
+  }
+  else
+  { Mix_Volume(5, 0 );
+  }
+} // }}}
+bool Baad::Forsvind() // {{{
+{ return false;
+} // }}}
+string Baad::TilTekst() // {{{
+{ stringstream resultat;
+  resultat << minSmadret << " "
+           << minSmadretTid;
+  return resultat.str();
+} // }}}
+void Baad::Frem(size_t ticks) // {{{
+{ //if (minY<=1.0)
+  { float hastighed=dist(0.0,0.0,0.0,minXhastighed,minYhastighed,minZhastighed);
+    minXhastighed+=(2.0)*minH_cos*minV_cos*frem_faktor*ticks;
+    minYhastighed+=(2.0)*minH_sin*minV_cos*frem_faktor*ticks;
+    //minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+  }
+  //else
+  //{ float hastighed=dist(0.0,0.0,0.0,minXhastighed,minYhastighed,minZhastighed);
+  //  minXhastighed+=(10.0+hastighed*gear_faktor)*minH_cos*minV_cos*frem_faktor*ticks*0.1;
+  //  minYhastighed+=(10.0+hastighed*gear_faktor)*minH_sin*minV_cos*frem_faktor*ticks*0.1;
+  //  //minZhastighed+=(1.0+hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+  //}
+} // }}}
+void Baad::Tilbage(size_t ticks) // {{{
+{ if (minY<=0)
+  { float hastighed=dist(0.0,0.0,0.0,minXhastighed,minYhastighed,minZhastighed);
+    minXhastighed+=(1.0-hastighed*gear_faktor)*minH_cos*minV_cos*frem_faktor*ticks;
+    minYhastighed+=(1.0-hastighed*gear_faktor)*minH_sin*minV_cos*frem_faktor*ticks;
+    //minZhastighed+=(1.0-hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+  }
+  else
+  { float hastighed=dist(0.0,0.0,0.0,minXhastighed,minYhastighed,minZhastighed);
+    minXhastighed+=(1.0-hastighed*gear_faktor)*minH_cos*minV_cos*frem_faktor*ticks*0.1;
+    minYhastighed+=(1.0-hastighed*gear_faktor)*minH_sin*minV_cos*frem_faktor*ticks*0.1;
+    //minZhastighed+=(1.0-hastighed*gear_faktor)*minV_sin*frem_faktor*ticks;
+  }
+} // }}}
+void Baad::SetRetning(bool venstre, bool hoejre) // {{{
+{ minH+=(venstre?0.001:0.0)-(hoejre?0.001:0.0);
+  minH_cos=cos(minH);
+  minH_sin=sin(minH);
+  minV=0.0;
+  minV_cos=cos(minV);
+  minV_sin=sin(minV);
+  minT-=(venstre?0.0005:0.0)-(hoejre?0.0005:0.0);
+  minT*=friktion;
+  minT_cos=cos(minT);
+  minT_sin=sin(minT);
+} // }}}
+void Baad::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{{
+{ tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
+  // Tegn vand
+
+  tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
+  string vandstr("vand");
+  Ting vand_0_0(vandstr, minX, minY, 0.0, 0.0, 0.0, 0.0, 0.0);
+  tegn_ting(dest,zbuf,tilstand,vand_0_0,kort_teksturer);
+} // }}}
+void Baad::TilCheckpoint(Tilstand &tilstand) // {{{
+{ minX=tilstand.checkpoint_x;
+  minY=tilstand.checkpoint_y;
+  minZ=tilstand.checkpoint_z;
+  minH=0;
+  minV=0;
+  minT=0;
+  minZhastighed=0.0;
+  minFart=5.0;
+  minH_cos=cos(minH);
+  minH_sin=sin(minH);
+  minV_cos=cos(minV);
+  minV_sin=sin(minV);
+  minT_cos=cos(minT);
+  minT_sin=sin(minT);
 } // }}}
 
 int max(int x, int y) // {{{
@@ -2044,7 +2321,7 @@ inline void haandter_haendelse(const SDL_Event &e, Tilstand &t) // {{{
       t.quit=true;
       break;
     default:
-      cerr << "Received unknown event: " << e.type << endl;
+      //cerr << "Received unknown event: " << e.type << endl;
       break;
   }
 } // }}}
@@ -2082,25 +2359,108 @@ inline void menu_haendelse(const SDL_Event &e, int &pos, int &select, int &back)
       back=1;
       break;
     default:
-      cerr << "Received unknown event: " << e.type << endl;
+      //cerr << "Received unknown event: " << e.type << endl;
       break;
   }
 } // }}}
 
-void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
-{ int pos=0;
+void spil_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
+{ // Kør spil
+  size_t ticks0=SDL_GetTicks();
+  size_t ticks=SDL_GetTicks();
+  size_t frameTicks=1;
+  // Sæt startposition
+  cout << "Sætter startposition." << endl;
+  tilstand.mig->TilCheckpoint(tilstand);
+  tilstand.mig->minSmadret=false;
+  tilstand.bane_faerdig=false;
+  tilstand.quit=false;
+
+  while (!tilstand.quit)
+  { tegn_verden(tilstand,skaerm);
+    // Beregn og vis FPS // {{{
+    // ticks bruges også til hvor
+    // meget bevægelse der skal ske
+    // imellem hvert billede
+    size_t ticks2=SDL_GetTicks();
+    frameTicks=ticks2-ticks;
+    ticks=ticks2;
+    stringstream ss;
+    ss << "FPS: " << 1000.0/(float(frameTicks));
+    stringRGBA(skaerm,5,5,ss.str().c_str(),0,0,255,255);
+    ss.str("");
+    ss << "TID: " << float(ticks2-ticks0)/1000.0;
+    stringRGBA(skaerm,5,15,ss.str().c_str(),0,0,255,255);
+    ss.str("");
+    ss << "FART: " << tilstand.mig->minFart;
+    stringRGBA(skaerm,5,25,ss.str().c_str(),0,0,255,255);
+    // }}}
+    // Opdater skærm
+    SDL_Flip(skaerm);
+
+    pthread_mutex_lock(&tilstand.klienter_laas);
+    // Bevæg spilleren
+    for (size_t i=min(100,frameTicks); i>0;)
+    { if (i>1)
+      { bevaeg(tilstand,1);
+        i-=1;
+      }
+      else
+      { bevaeg(tilstand,i);
+        i=0;
+      }
+    }
+    pthread_mutex_unlock(&tilstand.klienter_laas);
+
+    // Håndter handlinger
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    { haandter_haendelse(event,tilstand);
+    }
+
+    if (tilstand.bane_faerdig)
+    { cout << "Færdiggjorde bane i " << float(ticks2-ticks0)/1000.0 << " sekunder." << endl;
+      tilstand.quit=true;
+      break;
+    }
+  }
+} // }}}
+void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm, const std::string &koeretoej) // {{{
+{ cout << "Menu_bane: " << koeretoej << endl;
+  int pos=0;
   int enter=0;
   int tilbage=0;
   size_t ticks=SDL_GetTicks();
-  while (pos!=2 || enter==0)
+  vector<string> baner;
+  // Læs folder for liste af baner
+  DIR *dir = opendir((string("./menu/")+koeretoej).c_str());
+  struct dirent *entry = readdir(dir);
+  while (entry != NULL)
+  {
+    if (entry->d_type == DT_DIR && entry->d_name[0]!='.')
+    { cout << "Bane: " << entry->d_name << endl;
+      baner.push_back(entry->d_name);
+    }
+    entry = readdir(dir);
+  }
+  closedir(dir);
+
+  // Sorter fundne baner
+  std::sort(baner.begin(),baner.end());
+
+  vector<SDL_Surface*> bane_billeder;
+  for (int i=0; i<baner.size(); ++i)
+  { SDL_Surface *billede=IMG_Load((string("./menu/")+koeretoej+"/"+baner[i]+"/billede.png").c_str());
+    bane_billeder.push_back(billede);
+  }
+  while (pos!=baner.size() || enter==0)
   { size_t ticks2=SDL_GetTicks();
     size_t frameTicks=ticks2-ticks;
     ticks=ticks2;
-    if (pos==0 && enter==1)
-    { indlaes_bane( "baner/bane1.obj", tilstand);
-    }
-    else if (pos==1 && enter==1)
-    { indlaes_bane( "baner/stadion2.obj", tilstand);
+    if (enter==1)
+    { indlaes_bane(string("./menu/")+koeretoej+"/"+baner[pos]+"/model.obj", tilstand);
+      spil_bane(tilstand,skaerm);
+      enter=0;
     }
     SDL_Event event;
     enter=0;
@@ -2109,8 +2469,8 @@ void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     { menu_haendelse(event,pos,enter,tilbage);
     }
     if (pos<0)
-      pos=2;
-    if (pos>2)
+      pos=baner.size();
+    if (pos>baner.size())
       pos=0;
     // Tegn baggrund
     float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
@@ -2124,8 +2484,16 @@ void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     box.x=10;
     box.y=10;
     box.w=100;
-    box.h=100;
+    box.h=60+baner.size()*30;
     SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,100,100,50));
+    // Tegn billede af valgte bane
+    if (pos<bane_billeder.size())
+    { box.x=110;
+      box.y=10;
+      box.w=bane_billeder[pos]->w;
+      box.h=bane_billeder[pos]->h;
+      SDL_BlitSurface(bane_billeder[pos], NULL, skaerm, &box );
+    }
     // Draw selected item
     box.x=20;
     box.y=20+pos*30;
@@ -2133,10 +2501,9 @@ void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     box.h=20;
     SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,20,100,20));
     // Draw items texts
-    stringRGBA(skaerm,25,25,"Bane1",0,0,255,255);
-    stringRGBA(skaerm,25,55,"Bane2",0,0,255,255);
-    stringRGBA(skaerm,25,85,"Tilbage",0,0,255,255);
-
+    for (int i=0; i<baner.size(); ++i)
+    stringRGBA(skaerm,25,25+30*i,baner[i].c_str(),0,0,255,255);
+    stringRGBA(skaerm,25,25+30*baner.size(),"Tilbage",0,0,255,255);
     SDL_Flip(skaerm);
   }
 } // }}}
@@ -2149,16 +2516,20 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
   { size_t ticks2=SDL_GetTicks();
     size_t frameTicks=ticks2-ticks;
     ticks=ticks2;
-    if (pos==0 && enter==1)
+    if (pos==0 && enter==1) // Bil
     { delete tilstand.mig;
       tilstand.mig=new Bil(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+      menu_bane(tilstand,skaerm,"bil");
     }
     else if (pos==1 && enter==1)
     { delete tilstand.mig;
       tilstand.mig=new Fly(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+      menu_bane(tilstand,skaerm,"fly");
     }
     else if (pos==2 && enter==1)
-    { menu_bane(tilstand,skaerm);
+    { delete tilstand.mig;
+      tilstand.mig=new Baad(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
+      menu_bane(tilstand,skaerm,"baad");
     }
     SDL_Event event;
     enter=0;
@@ -2193,9 +2564,8 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     // Draw items texts
     stringRGBA(skaerm,25,25,"Bil",0,0,255,255);
     stringRGBA(skaerm,25,55,"Fly",0,0,255,255);
-    stringRGBA(skaerm,25,85,"Bane",0,0,255,255);
-    stringRGBA(skaerm,25,115,"Start",0,0,255,255);
-
+    stringRGBA(skaerm,25,85,"Baad",0,0,255,255);
+    stringRGBA(skaerm,25,115,"Afslut",0,0,255,255);
     SDL_Flip(skaerm);
   }
 } // }}}
@@ -2203,343 +2573,15 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 void *spil(void *t) // {{{
 { Tilstand &tilstand(*(Tilstand*)t);
   SDL_Surface *primary = SDL_SetVideoMode(bredde,hoejde,WINDOWDEAPTH,SDL_HWSURFACE | SDL_DOUBLEBUF /*| SDL_RESIZABLE | SDL_FULLSCREEN*/);
-  SDL_WM_SetCaption("Moomin Rally 3D","Moomon Rally 3D");
+  SDL_WM_SetCaption("Back On Track","Back On Track");
   SDL_ShowCursor(false);
 
   // Menu
   menu(tilstand,primary);
 
-  // Kør spil
-  size_t ticks0=SDL_GetTicks();
-  size_t ticks=SDL_GetTicks();
-  size_t frameTicks=1;
-
-  while (!tilstand.quit)
-  { tegn_verden(tilstand,primary);
-    // Beregn og vis FPS // {{{
-    // ticks bruges også til hvor
-    // meget bevægelse der skal ske
-    // imellem hvert billede
-    size_t ticks2=SDL_GetTicks();
-    frameTicks=ticks2-ticks;
-    ticks=ticks2;
-    stringstream ss;
-    ss << "FPS: " << 1000.0/(float(frameTicks));
-    stringRGBA(primary,5,5,ss.str().c_str(),0,0,255,255);
-    ss.str("");
-    ss << "TID: " << float(ticks2-ticks0)/1000.0;
-    stringRGBA(primary,5,15,ss.str().c_str(),0,0,255,255);
-    ss.str("");
-    ss << "FART: " << tilstand.mig->minFart;
-    stringRGBA(primary,5,25,ss.str().c_str(),0,0,255,255);
-    // }}}
-    // Opdater skærm
-    SDL_Flip(primary);
-
-    pthread_mutex_lock(&tilstand.klienter_laas);
-    // Bevæg spilleren
-    for (size_t i=min(100,frameTicks); i>0;)
-    { if (i>1)
-      { bevaeg(tilstand,1);
-        i-=1;
-      }
-      else
-      { bevaeg(tilstand,i);
-        i=0;
-      }
-    }
-    pthread_mutex_unlock(&tilstand.klienter_laas);
-
-    // Håndter handlinger
-    SDL_Event event;
-    while (SDL_PollEvent(&event))
-    { haandter_haendelse(event,tilstand);
-    }
-
-    if (tilstand.bane_faerdig)
-    { cout << "Færdiggjorde bane i " << float(ticks2-ticks0)/1000.0 << " sekunder." << endl;
-      tilstand.quit=true;
-      break;
-    }
-  }
-
   SDL_FreeSurface(primary);
-
   return NULL;
 } // }}}
-
-/* Protokol:
-   server -> klient : String; // sti til bane
-   rec $play;
-   klient -> server
-   {^tilstand:
-     server -> klient : String; // tilstand
-     $play;
-    ^position:
-     klient -> server : String; // position og retning
-     $play;
-    ^nytobjekt:
-     klient -> server: String; // type, position, retning og fart
-     $play;
-    ^slut:
-     $end;
-   }
-*/
-struct Klient // {{{
-{ Tilstand *tilstand;
-  Ting *figur;
-  TCPsocket forbindelse;
-}; // }}}
-vector<string> ModtagBeskedder(Klient *spiller) // {{{
-{ vector<string> beskedder;
-  char data[4096];
-  int len=SDLNet_TCP_Recv(spiller->forbindelse,data,4096);
-  if (len>0)
-  { //cout << "ModtagBeskedder: Modtog besked af længde: " << len << endl;
-    string datastr=string(data,len);
-    while (datastr.length()>0)
-    { size_t besked_deler=datastr.find('\n');
-      if (besked_deler!=string::npos)
-      { beskedder.push_back(datastr.substr(0,besked_deler));
-        datastr=datastr.substr(besked_deler+1);
-        //cout << "Server: Tilføjede besked fra data" << endl;
-      }
-      else
-      { cerr << "ModtagBeskedder: Intet linjeskift i besked" << endl;
-        break;
-      }
-    }
-  }
-  else
-  {
-    cerr << "ModtagBeskedder: Modtog ingen beskedder" << endl;
-  }
-  return beskedder;
-} // }}}
-
-void *server(void *t) // {{{
-{ Klient *spiller((Klient*)t);
-  while (!spiller->tilstand->quit)
-  { // Vent på klient
-    vector<string> beskedder=ModtagBeskedder(spiller);
-    if (beskedder.empty())
-      break;
-    while (!beskedder.empty())
-    { string besked=beskedder.front();
-      beskedder.erase(beskedder.begin());
-      //cout << "Server: modtog besked: " << besked << endl;
-      if (besked=="^position")
-      { if (beskedder.empty())
-          beskedder=ModtagBeskedder(spiller);
-        if(beskedder.empty())
-          break;
-        string position=beskedder.front();
-        beskedder.erase(beskedder.begin());
-        stringstream ss;
-        ss<<position;
-        pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-        ss>>spiller->figur->minX;
-        ss>>spiller->figur->minY;
-        ss>>spiller->figur->minZ;
-        ss>>spiller->figur->minH;
-        ss>>spiller->figur->minV;
-        spiller->figur->BeregnRetning();
-        pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-      }
-      else if (besked=="^nytobjekt")
-      { if (beskedder.empty())
-          beskedder=ModtagBeskedder(spiller);
-        if(beskedder.empty())
-          break;
-        string ting_tekst=beskedder.front();
-        beskedder.erase(beskedder.begin());
-        stringstream ss(ting_tekst);
-        string type;
-        ss>>type;
-        if (type=="ting")
-        { //cout << "Opretter ting" << endl;
-          Ting *ting=new Ting(ss);
-          pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-          spiller->tilstand->ting.push_back(ting);
-          pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-        }
-        else if (type=="hjul")
-        { //cout << "Opretter hjul" << endl;
-          Ting *ting=new Hjul(ss);
-          pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-          spiller->tilstand->ting.push_back(ting);
-          pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-        }
-        else cerr << "Klient: Ukendt ting: " << type << endl;
-      }
-      else if (besked=="^tilstand")
-      { stringstream ss;
-        Ting mig("pengvin",spiller->tilstand->mig->minX,spiller->tilstand->mig->minY,spiller->tilstand->mig->minZ,spiller->tilstand->mig->minH,spiller->tilstand->mig->minV,spiller->tilstand->mig->minT,0.0);
-        ss << "ting " << mig.TilTekst() << "\n";
-        pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-        for (size_t t=0; t<spiller->tilstand->ting.size(); ++t)
-        { if (spiller->tilstand->ting[t]==spiller->figur)
-            continue;
-          ss << spiller->tilstand->ting[t]->Type() << " " << spiller->tilstand->ting[t]->TilTekst() << "\n";
-        }
-        pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-        int result=SDLNet_TCP_Send(spiller->forbindelse,ss.str().c_str(),ss.str().length());
-      }
-      else if (besked=="^slut")
-        break;
-      else
-        cerr << "server: Ukendt klientvalg - " << besked << endl;
-    }
-  }
-  delete spiller;
-  return NULL;
-}
-// }}}
-void *klient(void *t) // {{{
-{ Klient *spiller((Klient*)t);
-  char msg[4096];
-  while (!spiller->tilstand->quit)
-  { stringstream ss;
-    pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-    ss << spiller->tilstand->mig->minX << " "
-       << spiller->tilstand->mig->minY << " "
-       << spiller->tilstand->mig->minZ << " "
-       << spiller->tilstand->mig->minH << " "
-       << spiller->tilstand->mig->minV << "\n";
-    string label_pos="^position\n";
-    //cout << "Klient sender label " << label_pos << endl;
-    SDLNet_TCP_Send(spiller->forbindelse,label_pos.c_str(),label_pos.length());
-    //cout << "Klient sender position " << ss.str() << endl;
-    SDLNet_TCP_Send(spiller->forbindelse,ss.str().c_str(),ss.str().length());
-    // Send nye ting til server
-    //cout << "Klient: Antal ting " << spiller->tilstand->ting.size() << endl;
-    for (size_t t=0; t<spiller->tilstand->ting.size(); ++t)
-    { if (spiller->tilstand->ting[t]->sendt)
-      { //cout << "Klient: Ting " << t << " er gammel" << endl;
-        continue;
-      }
-      stringstream ss2;
-      ss2 << spiller->tilstand->ting[t]->Type() << " " << spiller->tilstand->ting[t]->TilTekst() << "\n";
-      string label_nytobjekt="^nytobjekt\n";
-      //cout << "Klient sender label " << label_nytobjekt << endl;
-      SDLNet_TCP_Send(spiller->forbindelse,label_nytobjekt.c_str(),label_nytobjekt.length());
-      //cout << "Klient sender objekt: " << ss2.str() << endl;
-      SDLNet_TCP_Send(spiller->forbindelse,ss2.str().c_str(),ss2.str().length());
-      spiller->tilstand->ting[t]->sendt=true;
-    }
-    pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-    string label_tilstand="^tilstand\n";
-    //cout << "Klient sender label " << label_tilstand << endl;
-    SDLNet_TCP_Send(spiller->forbindelse,label_tilstand.c_str(),label_tilstand.length());
-    int len=SDLNet_TCP_Recv(spiller->forbindelse,msg,4096);
-    stringstream ss1(string(msg,len));
-    //cout << "Klient modtog tilstand: " << ss1.str() << endl;
-    string ting_tekst;
-    pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-    // Fjern sendte ting
-    for (int i=0; i<spiller->tilstand->ting.size(); )
-    { if (spiller->tilstand->ting[i]->sendt)
-      { delete spiller->tilstand->ting[i];
-        spiller->tilstand->ting.erase(spiller->tilstand->ting.begin()+i);
-      }
-      else
-        ++i;
-    }
-    pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-    for (string ting_tekst; getline(ss1,ting_tekst); )
-    { stringstream ss2(ting_tekst);
-      string type;
-      ss2>>type;
-      if (type=="ting")
-      { //cout << "Opretter ting" << endl;
-        Ting *ting=new Ting(ss2);
-        ting->sendt=true;
-        pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-        spiller->tilstand->ting.push_back(ting);
-        pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-      }
-      else if (type=="hjul")
-      { //cout << "Opretter hjul" << endl;
-        Ting *ting=new Hjul(ss2);
-        ting->sendt=true;
-        pthread_mutex_lock(&spiller->tilstand->klienter_laas);
-        spiller->tilstand->ting.push_back(ting);
-        pthread_mutex_unlock(&spiller->tilstand->klienter_laas);
-      }
-      else cerr << "Klient: Ukendt ting: " << type << endl;
-    }
-    SDL_Delay(100);
-  }
-  string label_slut="^slut";
-  int result=SDLNet_TCP_Send(spiller->forbindelse,label_slut.c_str(),label_slut.length());
-  delete spiller;
-  return NULL;
-}
-// }}}
-void *vaert(void *t) // {{{
-{ Tilstand &tilstand(*(Tilstand*)t);
-  vector<pthread_t> klient_traade;
-
-  IPaddress ip;
-  Uint16 port=(Uint16)GAMEPORT;
-	
-	/* Resolve the argument into an IPaddress type */
-	if(SDLNet_ResolveHost(&ip,NULL,port)==-1)
-  { cerr << "SDLNet_ResolveHost fejl: " << SDLNet_GetError() << endl;
-    return NULL;
-  }
-  //else
-  //  cout << "SDLNet_ResolveHost success!" << endl;
-  /* open the server socket */
-
-  TCPsocket forbindelse=SDLNet_TCP_Open(&ip);
-  if(!forbindelse)
-  { cerr << "SDLNet_TCP_Open fejl: " << SDLNet_GetError() << endl;
-    return NULL;
-  }
-  //else
-  //  cout << "SDLNet_TCP_Open success!" << endl;
-
-  while (!tilstand.quit)
-  { // Vent på klient
-    Klient *spiller=new Klient();
-	  spiller->forbindelse=SDLNet_TCP_Accept(forbindelse);
-    if(!spiller->forbindelse)
-		{ /* no connection accepted */
-			/*printf("SDLNet_TCP_Accept: %s\n",SDLNet_GetError()); */
-      delete spiller;
-			//cout << "Vært sover 1 sekund" << endl;
-      SDL_Delay(1000); /*sleep 1 second */
-			continue;
-		}
-    else
-    { //Send (sti til) bane
-      int result=SDLNet_TCP_Send(spiller->forbindelse,tilstand.banesti.c_str(),tilstand.banesti.length());
-	    if(result<tilstand.banesti.length())
-        cerr << "SDLNet_TCP_Send: " << SDLNet_GetError() << endl;
-      else
-      { // Tilføj spiller
-        spiller->tilstand=&tilstand;
-        spiller->figur=new Ting("pengvin",0.0,0.0,-10.0,0.0,0.0,0.0,0.0);
-        pthread_mutex_lock(&tilstand.klienter_laas);
-        tilstand.ting.push_back(spiller->figur);
-        pthread_mutex_unlock(&tilstand.klienter_laas);
-        //Start klient tråd
-        pthread_t klient_traad;
-        pthread_create(&klient_traad, NULL, server, (void*)spiller);
-        klient_traade.push_back(klient_traad);
-        cout << "Vært: Tilsluttede klient" << endl;
-      }
-    }
-  }
-  while (!klient_traade.empty())
-  { void *res;
-    pthread_join(klient_traade.back(),&res);
-    klient_traade.pop_back();
-  }
-  return NULL;
-}
-// }}}
 
 // main er selve programmet
 int main(int argc, char **argv) // {{{{
@@ -2570,68 +2612,40 @@ int main(int argc, char **argv) // {{{{
   Tilstand tilstand;
   vector<pthread_t> traade;
 
-  if (argc<2)
-  { cerr << "Angiv bane eller -c <server addresse>" << endl;
-    return 1;
-  }
-
   // Init biblioteker
-  //FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.2,-0.5,-2.3,1.2,0.7,laes_obj("ting/bil1.obj")));
-  FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.0,-0.1,-2.3,1.0,1.7,laes_obj("ting/bil2.obj")));
+  FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.2,-0.5,-2.3,1.2,0.7,laes_obj("ting/bil1.obj")));
+  FigurBibliotek["baad"]=smaa_trekanter(skaler_ting(-2.3,-1.0,-0.1,2.3,1.0,1.7,laes_obj("ting/baad.obj")));
   FigurBibliotek["fly"]=smaa_trekanter(skaler_ting(-1.0,-3.0,-1.0,1.0,3.0,1.0,laes_obj("ting/fly.obj")));
   FigurBibliotek["pengvin"]=smaa_trekanter(skaler_ting(-1,-1,-2,1,1,2,laes_obj("ting/pengvin.obj")));
   FigurBibliotek["hjul"]=smaa_trekanter(skaler_ting(-0.5,-0.2,-0.5,0.5,0.2,0.5,laes_obj("ting/hjul3.obj")));
+  vector<Trekant> vandfigur;
+  vandfigur.push_back(Trekant(-maks_afstand, -maks_afstand, 0.0, -maks_afstand,  maks_afstand, 0.0, maks_afstand, maks_afstand, 0.0, 11, 11, 111));
+  vandfigur.push_back(Trekant(-maks_afstand, -maks_afstand, 0.0,  maks_afstand, -maks_afstand, 0.0, maks_afstand, maks_afstand, 0.0, 11, 11, 111));
+  FigurBibliotek["vand"]=smaa_trekanter(vandfigur);
 
   BilledeBibliotek["sigtekorn"]=IMG_Load("billeder/sigtekorn.png");
   BilledeBibliotek["granat"]=IMG_Load("billeder/granat.png");
   BilledeBibliotek["pistol"]=IMG_Load("billeder/pistol.png");
   BilledeBibliotek["baggrund"]=IMG_Load("billeder/baggrund.jpg");
+  BilledeBibliotek["tekstur_vand"]=IMG_Load("billeder/vand.png");
   BilledeBibliotek["tekstur_græs"]=IMG_Load("billeder/græs.jpg");
   BilledeBibliotek["tekstur_asphalt"]=IMG_Load("billeder/asphalt.png");
   BilledeBibliotek["tekstur_mål"]=IMG_Load("billeder/mål.png");
-  //kort_teksturer[43*256*256+46*256+49]="tekstur_asphalt";
-  //kort_teksturer[18*256*256+105*256+54]="tekstur_græs";
-  //kort_teksturer[70*256*256+183*256+73]="tekstur_græs";
+  kort_teksturer[43*256*256+46*256+49]="tekstur_asphalt";
+  kort_teksturer[18*256*256+105*256+54]="tekstur_græs";
+  kort_teksturer[70*256*256+183*256+73]="tekstur_græs";
   kort_teksturer[0*256*256+159*256+215]="tekstur_mål";
+  kort_teksturer[11*256*256+11*256+111]="tekstur_vand";
   LydeBibliotek["hop"]=Mix_LoadWAV("lyde/klang.wav");
   LydeBibliotek["bang"]=Mix_LoadWAV("lyde/bang.wav");
   LydeBibliotek["bil_motor"]=Mix_LoadWAV("lyde/motor.wav");
+  LydeBibliotek["bil_skrid"]=Mix_LoadWAV("lyde/bil_skrid.wav");
   LydeBibliotek["fly_motor"]=Mix_LoadWAV("lyde/fly_motor.wav");
+  LydeBibliotek["baad_motor"]=Mix_LoadWAV("lyde/baad_motor.wav");
 
 
-  if (string(argv[1])=="-s" && argc>2)
-  { // Start klient
-    IPaddress ip;
-    Uint16 port(GAMEPORT);
-    if(SDLNet_ResolveHost(&ip,argv[2],port)==-1)
-    { cerr << "Kan ikke finde serveren " << argv[2] <<endl;
-      return -1;
-    }
-    Klient *spiller=new Klient();
-    spiller->forbindelse=SDLNet_TCP_Open(&ip);
-
-    char msg[4096];
-    //cout << "Debug: modtoger bane..." << endl;
-    size_t len=SDLNet_TCP_Recv(spiller->forbindelse,msg,4096);
-    tilstand.banesti=string(msg,len);
-    //cout << "Debug: modtog bane: " << tilstand.banesti << endl;
-    indlaes_bane( tilstand.banesti, tilstand);
-
-    spiller->tilstand=&tilstand;
-    spiller->figur=NULL;
-
-    pthread_t klient_traad;
-    pthread_create(&klient_traad, NULL, klient, (void*)spiller);
-    traade.push_back(klient_traad);
-  }
-  else
-  { tilstand.banesti=string(argv[1]);
-    indlaes_bane( tilstand.banesti, tilstand);
-    // Start vært
-    pthread_t vaert_traad;
-    pthread_create(&vaert_traad, NULL, vaert, (void*)&tilstand);
-    traade.push_back(vaert_traad);
-  }
+  tilstand.banesti="baner/bane1.obj"; //string(argv[1]);
+  indlaes_bane( tilstand.banesti, tilstand);
 
   // Start spil
   pthread_t spil_traad;
