@@ -22,7 +22,7 @@ size_t bredde=1024;
 size_t hoejde=768;
 float maks_afstand=150.0;
 float min_afstand=0.25;
-float friktion=0.9915;
+float friktion=0.992;
 float friktion_fri=0.9995;
 float tyngdekraft=0.02;
 float gear_faktor=0.43;  
@@ -851,9 +851,9 @@ inline void tegn_hline_tekstur(SDL_Surface *dest, vector<float> &zbuf, int y, in
         size_t tyi=((((int)(ty*50.0))%tekstur->h)+tekstur->h)%tekstur->h;
         //cout << "txi,tyi: " << txi << "," << tyi << endl;
         Uint32 pixel = getpixel(tekstur, txi, tyi);
-        unsigned char r,g,b;
-        SDL_GetRGB(pixel, tekstur->format, &r, &g, &b);
-        pixelRGBA(dest,x,y,fade_rcolor(r,posd),fade_gcolor(g,posd),fade_bcolor(b,posd),255);
+        unsigned char r,g,b,a;
+        SDL_GetRGBA(pixel, tekstur->format, &r, &g, &b, &a);
+        pixelRGBA(dest,x,y,fade_rcolor(r,posd),fade_gcolor(g,posd),fade_bcolor(b,posd),a);
         //pixelRGBA(dest,x,y,fade_rcolor(txi%256,posd),fade_gcolor(tyi%255,posd),fade_bcolor(0,posd),255);
         zbuf[x+y*bredde]=posd;
       }
@@ -1095,7 +1095,8 @@ inline void tegn_trekant3d(SDL_Surface *dest, vector<float>&zbuf, Tilstand &t, c
 } // }}}
 
 // Tegn en ting
-inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand, const Ting &ting, const map<size_t,string> &teksturer) // {{{
+enum texture_mode {OBJECT_SPACE=0, WORLD_SPACE=1};
+inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand, const Ting &ting, const map<size_t,string> &teksturer, texture_mode tm=OBJECT_SPACE) // {{{
 { // For hver trekant
   for (size_t i=0; i<FigurBibliotek[ting.minFigur].size(); ++i)
   { Trekant t=FigurBibliotek[ting.minFigur][i];
@@ -1115,7 +1116,10 @@ inline void tegn_ting(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand,
     t3.minX3=t2.minX3+ting.minX;
     t3.minY3=t2.minY3+ting.minY;
     t3.minZ3=t2.minZ3+ting.minZ;
-    tegn_trekant3d(dest,zbuf,tilstand,t3,teksturer,t.minX1+t.minZ1,t.minY1-t.minZ1,t.minX2+t.minZ2,t.minY2-t.minZ2,t.minX3+t.minZ3,t.minY3-t.minZ3);
+    if (tm==OBJECT_SPACE)
+      tegn_trekant3d(dest,zbuf,tilstand,t3,teksturer,t.minX1+t.minZ1,t.minY1-t.minZ1,t.minX2+t.minZ2,t.minY2-t.minZ2,t.minX3+t.minZ3,t.minY3-t.minZ3);
+    else
+      tegn_trekant3d(dest,zbuf,tilstand,t3,teksturer,t3.minX1+t3.minZ1,t3.minY1-t3.minZ1,t3.minX2+t3.minZ2,t3.minY2-t3.minZ2,t3.minX3+t3.minZ3,t3.minY3-t3.minZ3);
   }
 } // }}}
 
@@ -2068,7 +2072,7 @@ void Baad::Tegn(SDL_Surface *dest, vector<float>&zbuf, Tilstand &tilstand) // {{
   tegn_ting(dest,zbuf,tilstand,*this,ingen_teksturer);
   string vandstr("vand");
   Ting vand_0_0(vandstr, minX, minY, 0.0, 0.0, 0.0, 0.0, 0.0);
-  tegn_ting(dest,zbuf,tilstand,vand_0_0,kort_teksturer);
+  tegn_ting(dest,zbuf,tilstand,vand_0_0,kort_teksturer,WORLD_SPACE);
 } // }}}
 void Baad::TilCheckpoint(Tilstand &tilstand) // {{{
 { minX=tilstand.checkpoint_x;
@@ -2119,9 +2123,6 @@ void tegn_verden(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     for (size_t i=0; i<bredde*hoejde; ++i)
       zbuf[i]=maks_afstand;
 
-    //Tegn Avatar
-    tilstand.mig->Tegn(skaerm,zbuf,tilstand);
-
     // Tegn bane
     for (int x=Omraader::Afsnit(int(tilstand.kamera_x-maks_afstand)); x<=Omraader::Afsnit(int(tilstand.kamera_x+maks_afstand)); ++x)
     { for (int y=Omraader::Afsnit(int(tilstand.kamera_y-maks_afstand)); y<=Omraader::Afsnit(int(tilstand.kamera_y+maks_afstand)); ++y)
@@ -2133,6 +2134,8 @@ void tegn_verden(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
       }
     }
 
+    //Tegn Avatar
+    tilstand.mig->Tegn(skaerm,zbuf,tilstand);
 
     pthread_mutex_lock(&tilstand.klienter_laas);
     for (size_t t=0; t<tilstand.ting.size(); ++t)
