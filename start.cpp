@@ -2366,6 +2366,60 @@ inline void menu_haendelse(const SDL_Event &e, int &pos, int &select, int &back)
       break;
   }
 } // }}}
+inline void menu_edit(const SDL_Event &e, std::string &str, int &done) // {{{
+{ switch (e.type)
+  { case SDL_KEYDOWN:
+      if (e.key.keysym.sym>=32 && e.key.keysym.sym<=125)
+        str+=e.key.keysym.sym;
+      else switch (e.key.keysym.sym)
+      { case 27: // ESCAPE
+        case 13: // ENTER
+          done=1;
+          break;
+        case 8: // BACKSPACE
+        case 127: // DELETE
+          if (str.size()>0)
+            str=str.substr(0,str.size()-1);
+          break;
+        default:
+          //cout << "Key Down: " << event.key.keysym.sym << endl;
+          break;
+      }
+      break;
+    case SDL_QUIT:
+      //cout << "Window closed!" << endl;
+      done=1;
+      break;
+    default:
+      //cerr << "Received unknown event: " << e.type << endl;
+      break;
+  }
+} // }}}
+string trim(const string &str) // {{{
+{ string res=str;
+  while (res.size()>0 && std::isspace(res[0]))
+    res=res.substr(1);
+  while (res.size()>0 && std::isspace(res[res.size()-1]))
+    res=res.substr(0,res.size()-1);
+  return res;
+} // }}}
+vector<pair<string,string> > laes_config(const string &path) // {{{
+{ vector<pair<string,string> >  res;
+  ifstream fin(path);
+  string line;
+  while(!fin.eof())
+  { std::getline(fin,line);
+    size_t pos=line.find(':');
+    if (pos!=string::npos)
+    { string a=trim(line.substr(0,pos));
+      string b=trim(line.substr(pos+1));
+      if (!a.empty())
+        res.push_back(pair<string,string>(a,b));
+    }
+  }
+  fin.close();
+  return res;
+} // }}}
 
 void spil_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 { // Kør spil
@@ -2510,12 +2564,74 @@ void menu_bane(Tilstand &tilstand, SDL_Surface *skaerm, const std::string &koere
     SDL_Flip(skaerm);
   }
 } // }}}
+void menu_config(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
+{ //cout << "menu_config" << endl;
+  int pos=0;
+  int enter=0;
+  int tilbage=0;
+  size_t ticks=SDL_GetTicks();
+  vector<pair<string,string> > config=laes_config("./menu/config/config.cfg");
+  
+  int mode=0; // Select config
+              // 1=Edit config
+
+  while (pos!=config.size() || mode!=0 || enter==0 )
+  { size_t ticks2=SDL_GetTicks();
+    size_t frameTicks=ticks2-ticks;
+    ticks=ticks2;
+    SDL_Event event;
+    enter=0;
+    tilbage=0;
+    while (SDL_PollEvent(&event))
+    { if (mode==0)
+        menu_haendelse(event,pos,enter,tilbage);
+      else
+        menu_edit(event,config[pos].second,enter);
+
+      if (pos<0)
+        pos=config.size();
+      if (pos>config.size())
+        pos=0;
+
+      if (pos<config.size() && enter==1)
+      { // Toggle rediger indstilling
+        mode=1-mode;
+        enter=0;
+      }
+    }
+    // Tegn baggrund
+    float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
+    h-=0.0001*frameTicks;
+    tilstand.kamera_h_cos=cos(h);
+    tilstand.kamera_h_sin=sin(h);
+    tegn_verden(tilstand,skaerm);
+    //SDL_FillRect(skaerm,NULL,SDL_MapRGB(skaerm->format,0,0,0));
+    // Draw menu background
+    SDL_Rect box;
+    box.x=10;
+    box.y=10;
+    box.w=300;
+    box.h=40+config.size()*30;
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,100,100,50));
+    // Draw selected item
+    box.x=20;
+    box.y=20+pos*30;
+    box.w=280;
+    box.h=20;
+    SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,20,100,20));
+    // Draw items texts
+    for (int i=0; i<config.size(); ++i)
+    stringRGBA(skaerm,25,25+30*i,(config[i].first+" = "+config[i].second).c_str(),0,0,255,255);
+    stringRGBA(skaerm,25,25+30*config.size(),"Tilbage",0,0,255,255);
+    SDL_Flip(skaerm);
+  }
+} // }}}
 void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 { int pos=0;
   int enter=0;
   int tilbage=0;
   size_t ticks=SDL_GetTicks();
-  while (pos!=3 || enter==0)
+  while (pos!=4 || enter==0)
   { size_t ticks2=SDL_GetTicks();
     size_t frameTicks=ticks2-ticks;
     ticks=ticks2;
@@ -2534,6 +2650,9 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
       tilstand.mig=new Baad(0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0);
       menu_bane(tilstand,skaerm,"baad");
     }
+    else if (pos==3 && enter==1)
+    { menu_config(tilstand,skaerm);
+    }
     SDL_Event event;
     enter=0;
     tilbage=0;
@@ -2541,8 +2660,8 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     { menu_haendelse(event,pos,enter,tilbage);
     }
     if (pos<0)
-      pos=3;
-    if (pos>3)
+      pos=4;
+    if (pos>4)
       pos=0;
     // Tegn baggrund
     float h=atan2(tilstand.kamera_h_sin,tilstand.kamera_h_cos);
@@ -2555,20 +2674,21 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     SDL_Rect box;
     box.x=10;
     box.y=10;
-    box.w=100;
-    box.h=130;
+    box.w=140;
+    box.h=160;
     SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,100,100,50));
     // Draw selected item
     box.x=20;
     box.y=20+pos*30;
-    box.w=80;
+    box.w=120;
     box.h=20;
     SDL_FillRect(skaerm,&box,SDL_MapRGB(skaerm->format,20,100,20));
     // Draw items texts
     stringRGBA(skaerm,25,25,"Bil",0,0,255,255);
     stringRGBA(skaerm,25,55,"Fly",0,0,255,255);
     stringRGBA(skaerm,25,85,"Baad",0,0,255,255);
-    stringRGBA(skaerm,25,115,"Afslut",0,0,255,255);
+    stringRGBA(skaerm,25,115,"Indstillinger",0,0,255,255);
+    stringRGBA(skaerm,25,145,"Afslut",0,0,255,255);
     SDL_Flip(skaerm);
   }
 } // }}}
