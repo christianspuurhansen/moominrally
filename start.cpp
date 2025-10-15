@@ -20,6 +20,7 @@ using namespace std;
 #define GAMEPORT 1234
 size_t bredde=1024;
 size_t hoejde=768;
+bool fuldskaerm=true;
 float maks_afstand=150.0;
 float min_afstand=0.25;
 float friktion=0.992;
@@ -2420,6 +2421,62 @@ vector<pair<string,string> > laes_config(const string &path) // {{{
   fin.close();
   return res;
 } // }}}
+void set_config(const string &navn, const string &vaerdi) // {{{
+{ if (navn=="Bredde")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> bredde;
+  }
+  else if (navn=="Højde")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> hoejde;
+  }
+  else if (navn=="Fuldskærm")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> fuldskaerm;
+  }
+  else if (navn=="Maks Afstand")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> maks_afstand;
+  }
+  else if (navn=="Min Afstand")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> min_afstand;
+  }
+  else if (navn=="Friktion")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> friktion;
+  }
+  else if (navn=="Lunfmodstand")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> friktion_fri;
+  }
+  else if (navn=="Tyngdekraft")
+  { stringstream ss;
+    ss << vaerdi;
+    ss >> tyngdekraft;
+  }
+  else
+    cerr << "Ukent confik: " << navn << endl;
+} // }}}
+void skriv_config(const string &path) // {{{
+{ ofstream fout(path);
+  fout << "Bredde: " << bredde << endl;
+  fout << "Højde: " << hoejde << endl;
+  fout << "Fuldskærm: " << fuldskaerm << endl;
+  fout << "Maks Afstand: " << maks_afstand << endl;
+  fout << "Min Afstand: " << min_afstand << endl;
+  fout << "Friktion: " << friktion << endl;
+  fout << "Lunfmodstand: " << friktion_fri << endl;
+  fout << "Tyngdekraft: " << tyngdekraft;
+  fout.close();
+} // }}}
 
 void spil_bane(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 { // Kør spil
@@ -2570,8 +2627,15 @@ void menu_config(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
   int enter=0;
   int tilbage=0;
   size_t ticks=SDL_GetTicks();
-  vector<pair<string,string> > config=laes_config("./menu/config/config.cfg");
-  
+  vector<pair<string,string> > config;
+  config.push_back(pair<string,string>("Bredde",std::to_string(bredde)));
+  config.push_back(pair<string,string>("Højde",std::to_string(hoejde)));
+  config.push_back(pair<string,string>("Fuldskærm",std::to_string(fuldskaerm)));
+  config.push_back(pair<string,string>("Maks Afstand",std::to_string(maks_afstand)));
+  config.push_back(pair<string,string>("Min Afstand",std::to_string(min_afstand)));
+  config.push_back(pair<string,string>("Friktion",std::to_string(friktion)));
+  config.push_back(pair<string,string>("Luftmodstand",std::to_string(friktion_fri)));
+  config.push_back(pair<string,string>("Tyngdekraft",std::to_string(tyngdekraft)));
   int mode=0; // Select config
               // 1=Edit config
 
@@ -2594,7 +2658,9 @@ void menu_config(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
         pos=0;
 
       if (pos<config.size() && enter==1)
-      { // Toggle rediger indstilling
+      { if (mode==1)
+          set_config(config[pos].first,config[pos].second);
+        // Toggle rediger indstilling
         mode=1-mode;
         enter=0;
       }
@@ -2625,6 +2691,7 @@ void menu_config(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
     stringRGBA(skaerm,25,25+30*config.size(),"Tilbage",0,0,255,255);
     SDL_Flip(skaerm);
   }
+  skriv_config("./menu/config/config.cfg");
 } // }}}
 void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 { int pos=0;
@@ -2695,7 +2762,7 @@ void menu(Tilstand &tilstand, SDL_Surface *skaerm) // {{{
 
 void *spil(void *t) // {{{
 { Tilstand &tilstand(*(Tilstand*)t);
-  SDL_Surface *primary = SDL_SetVideoMode(bredde,hoejde,WINDOWDEAPTH,SDL_HWSURFACE | SDL_DOUBLEBUF /*| SDL_RESIZABLE | SDL_FULLSCREEN*/);
+  SDL_Surface *primary = SDL_SetVideoMode(bredde,hoejde,WINDOWDEAPTH,SDL_HWSURFACE | SDL_DOUBLEBUF | (fuldskaerm?SDL_FULLSCREEN:0));
   SDL_WM_SetCaption("Back On Track","Back On Track");
   SDL_ShowCursor(false);
 
@@ -2734,6 +2801,11 @@ int main(int argc, char **argv) // {{{{
   // Opret spillets tilstand
   Tilstand tilstand;
   vector<pthread_t> traade;
+
+  // Indlæs config
+  vector<pair<string,string> > cfg=laes_config("./menu/config/config.cfg");
+  for (size_t i=0; i<cfg.size(); ++i)
+    set_config(cfg[i].first,cfg[i].second);
 
   // Init biblioteker
   FigurBibliotek["bil"]=smaa_trekanter(skaler_ting(2.3,-1.2,-0.5,-2.3,1.2,0.7,laes_obj("ting/bil1.obj")));
